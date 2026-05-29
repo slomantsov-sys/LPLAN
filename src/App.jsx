@@ -1,4 +1,3 @@
-import React from "react";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -132,20 +131,8 @@ function daysSince(k){ const l=getLS(k); if(!l) return Infinity; return Math.flo
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
-  const [weeks,setWeeks] = useState(()=>{
-    try{
-      const s=getLS(WEEKS_KEY);
-      if(s) return JSON.parse(s);
-    }catch{}
-    return initWeeks();
-  });
-  const [days,setDays] = useState(()=>{
-    try{
-      const s=getLS(DAYS_KEY);
-      if(s) return JSON.parse(s);
-    }catch{}
-    return {};
-  });
+  const [weeks,setWeeks] = useState(initWeeks);
+  const [days,setDays] = useState({});
   const [priorities,setPriorities] = useState(()=>{
     try{ const s=getLS(PRIORITIES_KEY); if(s) return JSON.parse(s); }catch{}
     return DEFAULT_PRIORITIES;
@@ -155,13 +142,7 @@ export default function App(){
   const [addOpen,setAddOpen]   = useState(false);
   const [showReminder,setShowReminder]     = useState(false);
   const [showCheckReminder,setShowCheckReminder] = useState(false);
-  const [writtenOff,setWrittenOff] = useState(()=>{
-    try{
-      const s=getLS(WRITTEN_OFF_KEY);
-      if(s) return JSON.parse(s);
-    }catch{}
-    return {};
-  });
+  const [writtenOff,setWrittenOff] = useState({});
   const [showAmounts,setShowAmounts] = useState(true);
   const [clientPriority,setClientPriority] = useState(null); // null = show picker
   const [showBooked,setShowBooked] = useState(false);
@@ -172,9 +153,33 @@ export default function App(){
 
   // Persist priorities
   useEffect(()=>{ setLS(PRIORITIES_KEY, JSON.stringify(priorities)); },[priorities]);
-  useEffect(()=>{ setLS(WEEKS_KEY, JSON.stringify(weeks)); },[weeks]);
-  useEffect(()=>{ setLS(DAYS_KEY, JSON.stringify(days)); },[days]);
-  useEffect(()=>{ setLS(WRITTEN_OFF_KEY, JSON.stringify(writtenOff)); },[writtenOff]);
+
+  // Load from Supabase on mount
+  useEffect(()=>{
+    loadFromSupabase().then(data=>{
+      if(!data) return;
+      if(data.weeks && Object.keys(data.weeks).length>0) setWeeks(data.weeks);
+      if(data.days && Object.keys(data.days).length>0) setDays(data.days);
+      if(data.written_off) setWrittenOff(data.written_off);
+      if(data.show_amounts !== undefined) setShowAmounts(data.show_amounts);
+    });
+  },[]);
+
+  // Save to Supabase (debounced 2s)
+  const saveTimer = useRef(null);
+  useEffect(()=>{
+    if(saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(()=>{
+      saveToSupabase({
+        weeks, days,
+        written_off: writtenOff,
+        show_amounts: showAmounts,
+      });
+      setLS(WEEKS_KEY, JSON.stringify(weeks));
+      setLS(DAYS_KEY, JSON.stringify(days));
+    }, 2000);
+    return ()=>{ if(saveTimer.current) clearTimeout(saveTimer.current); };
+  },[weeks, days, writtenOff, showAmounts]);
 
   useEffect(()=>{
     const now=new Date(); now.setHours(0,0,0,0);
