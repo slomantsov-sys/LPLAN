@@ -1,4 +1,43 @@
+import React from "react";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+
+// ─── Supabase ─────────────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://rkjgnczsfqmkhrkmckot.supabase.co";
+const SUPABASE_KEY = "sb_publishable_KM1Bj1wCZlhnkNgRACo_fQ_Lahnz14Q";
+
+async function sbFetch(path, options={}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    ...options,
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": "return=representation",
+      ...(options.headers||{}),
+    }
+  });
+  if(!res.ok) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function loadFromSupabase() {
+  try {
+    const data = await sbFetch("/planner_data?id=eq.main&select=*");
+    if(data && data[0]) return data[0];
+  } catch(e) { console.error("Load error:", e); }
+  return null;
+}
+
+async function saveToSupabase(payload) {
+  try {
+    await sbFetch("/planner_data?id=eq.main", {
+      method: "PATCH",
+      body: JSON.stringify({...payload, updated_at: new Date().toISOString()}),
+    });
+  } catch(e) { console.error("Save error:", e); }
+}
+
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS_SHORT   = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
