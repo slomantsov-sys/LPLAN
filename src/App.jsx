@@ -348,12 +348,47 @@ export default function App(){
   });
 
   const [csvCopied,setCsvCopied]=useState(false);
+  const [backupMsg,setBackupMsg]=useState(""); // "saved" | "restored" | "error"
+  const importRef = useRef(null);
   // Collect all known client names for autocomplete
   const knownClients=useMemo(()=>{
     const names=new Set();
     Object.values(days).forEach(d=>(d.bookings||[]).forEach(b=>{ if(b.client?.trim()) names.add(b.client.trim()); }));
     return [...names].sort();
   },[days]);
+  // ── Backup / Restore ──
+  const handleBackup=()=>{
+    const data={weeks,days,priorities,writtenOff,showAmounts,_version:1,_date:new Date().toISOString()};
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=`planner_backup_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setBackupMsg("saved"); setTimeout(()=>setBackupMsg(""),2500);
+  };
+
+  const handleRestore=(e)=>{
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      try{
+        const data=JSON.parse(ev.target.result);
+        if(data.weeks) setWeeks(data.weeks);
+        if(data.days) setDays(data.days);
+        if(data.priorities) setPriorities(data.priorities);
+        if(data.writtenOff) setWrittenOff(data.writtenOff);
+        if(data.showAmounts!==undefined) setShowAmounts(data.showAmounts);
+        setBackupMsg("restored"); setTimeout(()=>setBackupMsg(""),3000);
+      }catch{
+        setBackupMsg("error"); setTimeout(()=>setBackupMsg(""),3000);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value="";
+  };
+
   const handleExport=()=>{
     const csv=buildCSV(weeks,days,priorities);
     navigator.clipboard?.writeText(csv).then(()=>{
@@ -470,22 +505,22 @@ export default function App(){
         <div style={{display:"flex",alignItems:"center",padding:"8px 11px",
           borderBottom:w.collapsed?"none":"1px solid #1a1a1a",gap:7,cursor:"pointer"}}
           onClick={()=>toggleCollapse(wk)}>
-          <div style={{fontSize:11,color:"#666"}}>{w.collapsed?"▶":"▼"}</div>
+          <div style={{fontSize:11,color:"#e8e8e0"}}>{w.collapsed?"▶":"▼"}</div>
           <div style={{flex:1}}>
-            <span style={{fontSize:13,fontWeight:700,color:"#e8e8e0"}}>{fmtShort(m)} – {fmtShort(addDays(m,6))}</span>
-            <span style={{marginLeft:7,fontSize:11,color:"#666"}}>{m.toLocaleDateString("ru-RU",{month:"long"})} {m.getFullYear()}</span>
-            {readOnly&&<span style={{marginLeft:7,fontSize:11,color:"#777"}}>{ago<52?`${ago} нед. назад`:`${Math.round(ago/52)} г. назад`}</span>}
+            <span style={{fontSize:13,fontWeight:700,color:"#f4f4f0"}}>{fmtShort(m)} – {fmtShort(addDays(m,6))}</span>
+            <span style={{marginLeft:7,fontSize:11,color:"#e8e8e0"}}>{m.toLocaleDateString("ru-RU",{month:"long"})} {m.getFullYear()}</span>
+            {readOnly&&<span style={{marginLeft:7,fontSize:11,color:"#ddd"}}>{ago<52?`${ago} нед. назад`:`${Math.round(ago/52)} г. назад`}</span>}
           </div>
           <div style={{display:"flex",gap:5,alignItems:"center"}}>
             {stats.comm>0&&<Badge color="#fb923c">{stats.comm} ком{stats.unpaid>0&&<span style={{color:"#ef4444"}}> ·{stats.unpaid}₽</span>}</Badge>}
             {stats.nonc>0&&<Badge color="#60a5fa">{stats.nonc} нек</Badge>}
             {stats.open>0&&!booked&&<Badge color="#4ade80">{stats.open} св</Badge>}
             {hasR&&<span style={{fontSize:10,color:rs.labelColor}}>{rs.label}</span>}
-            {!booked&&!hasR&&stats.open===0&&<span style={{fontSize:11,color:"#666"}}>○</span>}
+            {!booked&&!hasR&&stats.open===0&&<span style={{fontSize:11,color:"#e8e8e0"}}>○</span>}
           </div>
           <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
-            {!readOnly&&<button onClick={()=>setModal({type:"weekMenu",wk})} style={bSty("#444","#222")}>⋯</button>}
-            <button onClick={()=>removeWeek(wk)} style={bSty("#2a2a2a","#1a1a1a")}>✕</button>
+            {!readOnly&&<button onClick={()=>setModal({type:"weekMenu",wk})} style={bSty("#ccc","#222")}>⋯</button>}
+            <button onClick={()=>removeWeek(wk)} style={bSty("#aaa","#1a1a1a")}>✕</button>
           </div>
         </div>
 
@@ -495,12 +530,12 @@ export default function App(){
           <>
             {!hasR&&!readOnly&&(
               <div style={{padding:"6px 11px",borderBottom:"1px solid #1a1a1a",display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
-                <span style={{fontSize:11,color:"#666",letterSpacing:1,textTransform:"uppercase",marginRight:3}}>Дни:</span>
+                <span style={{fontSize:11,color:"#e8e8e0",letterSpacing:1,textTransform:"uppercase",marginRight:3}}>Дни:</span>
                 {DAYS_SHORT.map((d,i)=>{
                   const a=w.availDays.includes(i);
                   return <button key={i} onClick={()=>toggleAvailDay(wk,i)} style={{
                     padding:"3px 8px",borderRadius:5,border:`1px solid ${a?"#4ade80":"#222"}`,
-                    background:a?"#0d1f14":"transparent",color:a?"#4ade80":"#888",
+                    background:a?"#0d1f14":"transparent",color:a?"#4ade80":"#ccc",
                     fontSize:11,cursor:"pointer",fontFamily:"inherit",
                   }}>{d}</button>;
                 })}
@@ -517,13 +552,13 @@ export default function App(){
   };
 
   return(
-    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#e0e0d8",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none"}}>
+    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none"}}>
 
       {/* HEADER */}
       <div style={{borderBottom:"1px solid #1e1e1e",padding:"13px 14px 10px",position:"sticky",top:0,
         background:"#0a0a0a",zIndex:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
         <div>
-          <div style={{fontSize:11,letterSpacing:2,color:"#777",textTransform:"uppercase",marginBottom:1}}>ЗАДАНИЯ</div>
+          <div style={{fontSize:11,letterSpacing:2,color:"#ddd",textTransform:"uppercase",marginBottom:1}}>ЗАДАНИЯ</div>
           <div style={{fontSize:14,fontWeight:700,letterSpacing:-0.5}}>{futureWKs.length} нед. вперёд · архив {pastWKs.length}</div>
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
@@ -538,19 +573,40 @@ export default function App(){
               onClick={()=>setView(prev=>prev===v?"schedule":v)}
               style={{
                 width:38,height:38,borderRadius:8,
-                border:`2px solid ${view===v?c:"#2a2a2a"}`,
+                border:`2px solid ${view===v?c:"#aaa"}`,
                 background:view===v?c:"#111",
-                color:view===v?"#0a0a0a":"#444",
+                color:view===v?"#0a0a0a":"#ccc",
                 fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
                 transition:"all .15s",
                 boxShadow:view===v?`0 0 10px ${c}66`:"none",
               }}>{icon}</button>
           ))}
-          <button onClick={handleExport} title="Скачать CSV"
-            style={{width:38,height:38,borderRadius:8,border:"2px solid #2a3a2a",background:"#111",color:"#4ade80",
-              fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>⬇️</button>
+          <button onClick={handleExport} title="Скопировать CSV"
+            style={{width:38,height:38,borderRadius:8,border:`2px solid ${csvCopied?"#4ade80":"#2a3a2a"}`,
+              background:csvCopied?"#0d2a0d":"#111",color:"#4ade80",
+              fontSize:csvCopied?14:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+            {csvCopied?"✓":"⬇️"}
+          </button>
+          <button onClick={handleBackup} title="Резервная копия (JSON)"
+            style={{width:38,height:38,borderRadius:8,
+              border:`2px solid ${backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#2a2a3a"}`,
+              background:backupMsg==="saved"?"#0d2a0d":backupMsg==="error"?"#1a0d0d":"#111",
+              color:backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#a78bfa",
+              fontSize:backupMsg?14:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+            {backupMsg==="saved"?"✓":backupMsg==="error"?"✗":"💾"}
+          </button>
+          <button onClick={()=>importRef.current?.click()} title="Восстановить из файла"
+            style={{width:38,height:38,borderRadius:8,
+              border:`2px solid ${backupMsg==="restored"?"#4ade80":"#2a2a3a"}`,
+              background:backupMsg==="restored"?"#0d2a0d":"#111",
+              color:backupMsg==="restored"?"#4ade80":"#60a5fa",
+              fontSize:backupMsg==="restored"?14:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+            {backupMsg==="restored"?"✓":"📂"}
+          </button>
+          <input ref={importRef} type="file" accept=".json" onChange={handleRestore}
+            style={{display:"none"}}/>
           <button onClick={()=>setAddOpen(true)} title="Добавить неделю"
-            style={{width:38,height:38,borderRadius:8,border:"2px solid #2a2a2a",background:"#111",color:"#666",
+            style={{width:38,height:38,borderRadius:8,border:"2px solid #2a2a2a",background:"#111",color:"#e8e8e0",
               fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>＋</button>
         </div>
       </div>
@@ -561,7 +617,7 @@ export default function App(){
           <div style={{fontSize:12,color:"#facc15"}}>⏰ 2 месяца без резервной копии — рекомендуем сохранить CSV</div>
           <div style={{display:"flex",gap:6}}>
             <button onClick={handleExport} style={{padding:"4px 10px",borderRadius:5,border:"1px solid #facc15",background:"#2a2000",color:"#facc15",fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>Сохранить</button>
-            <button onClick={()=>setShowReminder(false)} style={{padding:"4px 8px",borderRadius:5,border:"1px solid #333",background:"transparent",color:"#555",fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+            <button onClick={()=>setShowReminder(false)} style={{padding:"4px 8px",borderRadius:5,border:"1px solid #333",background:"transparent",color:"#999",fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
           </div>
         </div>
       )}
@@ -576,11 +632,11 @@ export default function App(){
       {view==="schedule"&&(
         <div style={{padding:"7px 14px",borderBottom:"1px solid #111",display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
           {[[BT_STYLE.commercial.color,"Коммерч."],[BT_STYLE.noncommercial.color,"Некоммерч."],["#4ade80","Свободен"],["#facc15","Скрыт"],["#a78bfa","Личн. бронь"]].map(([c,l])=>(
-            <div key={l} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#888"}}>
+            <div key={l} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#e8e8e0"}}>
               <div style={{width:7,height:7,borderRadius:2,background:c}}/>{l}
             </div>
           ))}
-          <div style={{fontSize:11,color:"#666",marginLeft:"auto"}}>Клик = детали · удержание = скрыть</div>
+          <div style={{fontSize:11,color:"#e8e8e0",marginLeft:"auto"}}>Клик = детали · удержание = скрыть</div>
         </div>
       )}
 
@@ -685,10 +741,10 @@ function PrioritySettings({priorities, onChange, onClose}){
 
   return(
     <div style={{padding:"14px 14px"}}>
-      <div style={{fontSize:11,color:"#888",letterSpacing:3,textTransform:"uppercase",marginBottom:16}}>
+      <div style={{fontSize:11,color:"#e8e8e0",letterSpacing:3,textTransform:"uppercase",marginBottom:16}}>
         НАСТРОЙКИ ПРИОРИТЕТОВ
       </div>
-      <div style={{fontSize:11,color:"#888",marginBottom:16,lineHeight:1.6}}>
+      <div style={{fontSize:11,color:"#e8e8e0",marginBottom:16,lineHeight:1.6}}>
         Задай название и максимальное количество заданий в неделю для каждого приоритета.<br/>
         Пустое название — приоритет не используется.
       </div>
@@ -702,7 +758,7 @@ function PrioritySettings({priorities, onChange, onClose}){
             {/* Color dot + key */}
             <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
               <div style={{width:9,height:9,borderRadius:"50%",background:p.color}}/>
-              <span style={{fontSize:11,color:"#888",textTransform:"uppercase"}}>{pk}</span>
+              <span style={{fontSize:11,color:"#e8e8e0",textTransform:"uppercase"}}>{pk}</span>
             </div>
             {/* Name */}
             <input
@@ -713,18 +769,18 @@ function PrioritySettings({priorities, onChange, onClose}){
             />
             {/* Max per week */}
             <div style={{display:"flex",flexDirection:"column",gap:3}}>
-              <div style={{fontSize:9,color:"#777",letterSpacing:1,textTransform:"uppercase"}}>макс/нед</div>
+              <div style={{fontSize:9,color:"#ddd",letterSpacing:1,textTransform:"uppercase"}}>макс/нед</div>
               <div style={{display:"flex",alignItems:"center",gap:5}}>
                 <button onClick={()=>update(pk,"maxPerWeek",Math.max(1,p.maxPerWeek-1))}
-                  style={{...bSty("#888","#333"),padding:"2px 7px",fontSize:13}}>−</button>
+                  style={{...bSty("#ccc","#bbb"),padding:"2px 7px",fontSize:13}}>−</button>
                 <span style={{fontSize:13,color:p.color,fontWeight:700,minWidth:14,textAlign:"center"}}>{p.maxPerWeek}</span>
                 <button onClick={()=>update(pk,"maxPerWeek",Math.min(7,p.maxPerWeek+1))}
-                  style={{...bSty("#888","#333"),padding:"2px 7px",fontSize:13}}>+</button>
+                  style={{...bSty("#ccc","#bbb"),padding:"2px 7px",fontSize:13}}>+</button>
               </div>
             </div>
             {/* Color picker */}
             <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
-              <div style={{fontSize:9,color:"#777",letterSpacing:1,textTransform:"uppercase"}}>цвет</div>
+              <div style={{fontSize:9,color:"#ddd",letterSpacing:1,textTransform:"uppercase"}}>цвет</div>
               <input type="color" value={p.color} onChange={e=>update(pk,"color",e.target.value)}
                 style={{width:32,height:24,border:"none",background:"none",cursor:"pointer",padding:0,borderRadius:4}}/>
             </div>
@@ -734,7 +790,7 @@ function PrioritySettings({priorities, onChange, onClose}){
 
       <button onClick={save} style={{
         marginTop:14,width:"100%",padding:"10px",borderRadius:8,
-        border:`1px solid ${saved?"#4ade80":"#333"}`,
+        border:`1px solid ${saved?"#4ade80":"#bbb"}`,
         background:saved?"#0d1f14":"#1a1a1a",
         color:saved?"#4ade80":"#e0e0d8",
         fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
@@ -828,7 +884,7 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
           padding:"5px 10px",borderRadius:6,fontSize:10,cursor:"pointer",fontFamily:"inherit",
           border:`1px solid ${active===key?"#a78bfa":"#222"}`,
           background:active===key?"#10091f":"#111",
-          color:active===key?"#a78bfa":"#666",fontWeight:active===key?700:400,
+          color:active===key?"#a78bfa":"#aaa",fontWeight:active===key?700:400,
         }}>{label}</button>
       ))}
     </div>
@@ -843,7 +899,7 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
             flex:1,padding:"7px 4px",borderRadius:7,fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
             border:`1px solid ${mode===k?"#a78bfa":"#222"}`,
             background:mode===k?"#10091f":"#111",
-            color:mode===k?"#a78bfa":"#666",
+            color:mode===k?"#a78bfa":"#aaa",
           }}>{lbl}</button>
         ))}
       </div>
@@ -855,7 +911,7 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
         <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
           <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}
             style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
-          <span style={{color:"#555"}}>—</span>
+          <span style={{color:"#999"}}>—</span>
           <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)}
             style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
         </div>
@@ -871,7 +927,7 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
         return(
           <>
             <div style={{background:"#111",border:"1px solid #4ade8033",borderRadius:10,padding:14,
-              fontSize:12,lineHeight:1.9,whiteSpace:"pre-line",color:"#ddd",maxHeight:320,overflowY:"auto"}}>
+              fontSize:12,lineHeight:1.9,whiteSpace:"pre-line",color:"#eee",maxHeight:320,overflowY:"auto"}}>
               {txt}
             </div>
             <button onClick={()=>navigator.clipboard?.writeText(txt)} style={{
@@ -903,7 +959,7 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
             );
           })()}
           {bookings.length===0?(
-            <div style={{fontSize:12,color:"#555",textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:12,color:"#999",textAlign:"center",padding:"20px 0"}}>
               Заданий за период нет
             </div>
           ):(
@@ -911,27 +967,27 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
               {bookings.map((b,bi)=>{
                 const pname=priorities[b.priority]?.name||"";
                 const isComm=b.type==="commercial";
-                const pc=priorities[b.priority]?.color||"#888";
+                const pc=priorities[b.priority]?.color||"#ccc";
                 return(
                   <div key={bi} style={{
                     padding:"9px 12px",borderRadius:8,marginBottom:6,
                     border:`1px solid ${pc}33`,background:`${pc}08`,
                   }}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
-                      <span style={{fontSize:12,fontWeight:700,color:"#e0e0d8"}}>
+                      <span style={{fontSize:12,fontWeight:700,color:"#f0f0ec"}}>
                         {b.date.toLocaleDateString("ru-RU",{day:"numeric",month:"long",weekday:"short"})}
                       </span>
                       <span style={{fontSize:10,color:isComm?"#fb923c":"#60a5fa",fontWeight:600}}>
                         {isComm?"Коммерческая":"Некоммерческая"}
                       </span>
                     </div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6,fontSize:11,color:"#aaa"}}>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6,fontSize:11,color:"#e8e8e0"}}>
                       {b.client&&<span>👤 {b.client}</span>}
                       {pname&&<span style={{color:pc}}>◆ {pname}</span>}
                       {isComm&&<span style={{color:b.paid?"#4ade80":"#ef4444"}}>{b.paid?"✓ Оплачено":"✗ Не оплачено"}</span>}
                       {showAmounts&&isComm&&b.amount&&<span style={{color:"#fbbf24",fontWeight:700}}>{fmt(b.amount)}</span>}
                     </div>
-                    {b.note&&<div style={{fontSize:10,color:"#555",marginTop:4,fontStyle:"italic"}}>{b.note}</div>}
+                    {b.note&&<div style={{fontSize:10,color:"#999",marginTop:4,fontStyle:"italic"}}>{b.note}</div>}
                   </div>
                 );
               })}
@@ -965,9 +1021,9 @@ function ReportsView({priorities,clientPriority,setClientPriority,showBooked,set
     }}>Скопировать</button>
   );
 
-  const TextBox=({txt,color="#333"})=>(
+  const TextBox=({txt,color="#bbb"})=>(
     <div style={{background:"#111",border:`1px solid ${color}`,borderRadius:10,padding:14,
-      fontSize:12,lineHeight:1.9,whiteSpace:"pre-line",color:"#ddd",
+      fontSize:12,lineHeight:1.9,whiteSpace:"pre-line",color:"#eee",
       fontFamily:"'DM Mono','Courier New',monospace",maxHeight:300,overflowY:"auto"}}>
       {txt}
     </div>
@@ -976,7 +1032,7 @@ function ReportsView({priorities,clientPriority,setClientPriority,showBooked,set
   return(
     <div style={{padding:16}}>
       {/* Header */}
-      <div style={{fontSize:14,fontWeight:700,color:"#e0e0d8",marginBottom:4}}>Отчёты / Прогнозы</div>
+      <div style={{fontSize:14,fontWeight:700,color:"#f0f0ec",marginBottom:4}}>Отчёты / Прогнозы</div>
 
       {/* Section tabs */}
       <div style={{display:"flex",gap:6,marginBottom:18}}>
@@ -994,7 +1050,7 @@ function ReportsView({priorities,clientPriority,setClientPriority,showBooked,set
       {/* ── FOR CLIENT ── */}
       {section==="client"&&(
         <div>
-          <div style={{fontSize:10,color:"#555",letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>
+          <div style={{fontSize:10,color:"#999",letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>
             Свободные даты для отправки клиенту
           </div>
           {/* Priority picker */}
@@ -1003,8 +1059,8 @@ function ReportsView({priorities,clientPriority,setClientPriority,showBooked,set
               const p=priorities[pk]; const sel=clientPriority===pk;
               return(
                 <button key={pk} onClick={()=>setClientPriority(sel?null:pk)} style={{
-                  padding:"6px 12px",borderRadius:7,border:`1px solid ${sel?p.color:"#2a2a2a"}`,
-                  background:sel?`${p.color}20`:"#111",color:sel?p.color:"#666",
+                  padding:"6px 12px",borderRadius:7,border:`1px solid ${sel?p.color:"#e8e8e0"}`,
+                  background:sel?`${p.color}20`:"#111",color:sel?p.color:"#e8e8e0",
                   fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:sel?700:400,
                   display:"flex",alignItems:"center",gap:5,
                 }}>
@@ -1014,7 +1070,7 @@ function ReportsView({priorities,clientPriority,setClientPriority,showBooked,set
               );
             })}
             {PRIORITY_KEYS.filter(pk=>priorities[pk]?.name).length===0&&(
-              <div style={{fontSize:11,color:"#555"}}>Настрой приоритеты в ⚙️</div>
+              <div style={{fontSize:11,color:"#999"}}>Настрой приоритеты в ⚙️</div>
             )}
           </div>
           {clientPriority&&(()=>{
@@ -1054,7 +1110,7 @@ function ArchiveView({pastWKs, renderWeek, weeksAgo, parseWK}){
 
   return(
     <div style={{padding:"11px 13px"}}>
-      <div style={{fontSize:11,color:"#888",letterSpacing:2,textTransform:"uppercase",marginBottom:12}}>
+      <div style={{fontSize:11,color:"#e8e8e0",letterSpacing:2,textTransform:"uppercase",marginBottom:12}}>
         Архив — {pastWKs.length} нед.
       </div>
 
@@ -1081,9 +1137,9 @@ function ArchiveView({pastWKs, renderWeek, weeksAgo, parseWK}){
               cursor:"pointer",borderRadius:7,
               border:"1px solid #1e1e1e",background:"#0f0f0f",
             }}>
-              <span style={{fontSize:10,color:"#555"}}>{isOpen?"▼":"▶"}</span>
-              <span style={{fontSize:12,fontWeight:700,color:"#aaa",flex:1}}>{yr}</span>
-              <span style={{fontSize:10,color:"#555"}}>{byYear[yr].length} нед.</span>
+              <span style={{fontSize:10,color:"#999"}}>{isOpen?"▼":"▶"}</span>
+              <span style={{fontSize:12,fontWeight:700,color:"#e8e8e0",flex:1}}>{yr}</span>
+              <span style={{fontSize:10,color:"#999"}}>{byYear[yr].length} нед.</span>
             </div>
             {isOpen&&(
               <div style={{marginTop:4}}>
@@ -1095,7 +1151,7 @@ function ArchiveView({pastWKs, renderWeek, weeksAgo, parseWK}){
       })}
 
       {pastWKs.length===0&&(
-        <div style={{fontSize:12,color:"#555",textAlign:"center",paddingTop:40}}>
+        <div style={{fontSize:12,color:"#999",textAlign:"center",paddingTop:40}}>
           Прошедших недель пока нет.<br/>
           Добавь через кнопку + → ◀ Назад
         </div>
@@ -1110,7 +1166,7 @@ function ScheduleView({futureWKs, renderWeek}){
     <div style={{padding:"10px 12px"}}>
       {futureWKs.map(wk=>renderWeek(wk,false))}
       {futureWKs.length===0&&(
-        <div style={{fontSize:12,color:"#555",textAlign:"center",paddingTop:40}}>
+        <div style={{fontSize:12,color:"#999",textAlign:"center",paddingTop:40}}>
           Нет недель. Нажми + чтобы добавить
         </div>
       )}
@@ -1261,7 +1317,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
             <ML>День</ML>
             <div style={{fontSize:14,fontWeight:700,lineHeight:1.3}}>{fmtFull(date)}</div>
           </div>
-          <button onClick={onClose} style={bSty("#555","#222")}>✕</button>
+          <button onClick={onClose} style={bSty("#999","#222")}>✕</button>
         </div>
 
         {/* Existing bookings */}
@@ -1269,7 +1325,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
           <div style={{marginBottom:12}}>
             <ML>Задания ({bookings.length}/3)</ML>
             {bookings.map(b=>{
-              const p=priorities[b.priority]; const pc=p?.color||"#888";
+              const p=priorities[b.priority]; const pc=p?.color||"#ccc";
               const bs=BT_STYLE[b.type];
               return(
                 <div key={b.id} style={{border:`1px solid ${pc}44`,borderRadius:9,padding:"10px 12px",marginBottom:8,background:`${pc}0a`}}>
@@ -1279,7 +1335,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
                       <span style={{fontSize:11,color:pc,fontWeight:700}}>{p?.name||b.priority}</span>
                       <span style={{fontSize:9,color:bs.color,border:`1px solid ${bs.color}44`,borderRadius:3,padding:"1px 5px"}}>{bs.label}</span>
                     </div>
-                    <button onClick={()=>onRemoveBooking(dk,b.id)} style={bSty("#444","#222")}>удалить</button>
+                    <button onClick={()=>onRemoveBooking(dk,b.id)} style={bSty("#ccc","#222")}>удалить</button>
                   </div>
                   {/* Priority selector */}
                   <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
@@ -1287,7 +1343,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
                       const pp=priorities[pk]; const isSel=b.priority===pk;
                       return <button key={pk} onClick={()=>onUpdateBooking(dk,b.id,{priority:pk})} style={{
                         padding:"2px 8px",borderRadius:4,border:`1px solid ${isSel?pp.color:"#222"}`,
-                        background:isSel?`${pp.color}20`:"transparent",color:isSel?pp.color:"#444",
+                        background:isSel?`${pp.color}20`:"transparent",color:isSel?pp.color:"#e8e8e0",
                         fontSize:9,cursor:"pointer",fontFamily:"inherit",
                       }}>{pp.name}</button>;
                     })}
@@ -1298,7 +1354,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
                       const ts=BT_STYLE[t];
                       return <button key={t} onClick={()=>onUpdateBooking(dk,b.id,{type:t})} style={{
                         flex:1,padding:"5px",borderRadius:6,border:`1px solid ${b.type===t?ts.color:"#222"}`,
-                        background:b.type===t?ts.bg:"transparent",color:b.type===t?ts.color:"#555",
+                        background:b.type===t?ts.bg:"transparent",color:b.type===t?ts.color:"#999",
                         fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:b.type===t?700:400,
                       }}>{ts.label}</button>;
                     })}
@@ -1308,18 +1364,18 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
                     style={{...inp,marginBottom:b.type===BT.COMMERCIAL?8:0,fontSize:12}}/>
                   {b.type===BT.COMMERCIAL&&(
                     <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:8}}>
-                      <div style={{fontSize:10,color:"#666"}}>Оплата:</div>
+                      <div style={{fontSize:10,color:"#e8e8e0"}}>Оплата:</div>
                       {[["Оплачено",true,"#4ade80"],["Не оплачено",false,"#ef4444"]].map(([lbl,val,clr])=>(
                         <button key={lbl} onClick={()=>onUpdateBooking(dk,b.id,{paid:val})} style={{
-                          padding:"4px 10px",borderRadius:5,border:`1px solid ${b.paid===val?clr:"#2a2a2a"}`,
-                          background:b.paid===val?`${clr}18`:"transparent",color:b.paid===val?clr:"#555",
+                          padding:"4px 10px",borderRadius:5,border:`1px solid ${b.paid===val?clr:"#aaa"}`,
+                          background:b.paid===val?`${clr}18`:"transparent",color:b.paid===val?clr:"#999",
                           fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:b.paid===val?700:400,
                         }}>{lbl}</button>
                       ))}
                     </div>
                   )}
                   <input value={b.note||""} onChange={e=>onUpdateBooking(dk,b.id,{note:e.target.value})}
-                    placeholder="Заметка" style={{...inp,marginBottom:0,fontSize:11,color:"#888"}}/>
+                    placeholder="Заметка" style={{...inp,marginBottom:0,fontSize:11,color:"#e8e8e0"}}/>
                 </div>
               );
             })}
@@ -1332,16 +1388,16 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
             <ML>Новое задание</ML>
             {/* Priority selector */}
             <div style={{marginBottom:8}}>
-              <div style={{fontSize:11,color:"#888",marginBottom:5}}>ПРИОРИТЕТ</div>
+              <div style={{fontSize:11,color:"#e8e8e0",marginBottom:5}}>ПРИОРИТЕТ</div>
               <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                 {activePriorities.map(pk=>{
                   const pp=priorities[pk];
                   const isSel=addForm.priority===pk;
                   const hasCapacity=avPriorities.includes(pk);
                   return <button key={pk} onClick={()=>setAddForm(f=>({...f,priority:pk}))} style={{
-                    padding:"3px 9px",borderRadius:5,border:`1px solid ${isSel?pp.color:hasCapacity?"#333":"#3a1a1a"}`,
+                    padding:"3px 9px",borderRadius:5,border:`1px solid ${isSel?pp.color:hasCapacity?"#bbb":"#3a1a1a"}`,
                     background:isSel?`${pp.color}20`:"transparent",
-                    color:isSel?pp.color:hasCapacity?"#666":"#553333",
+                    color:isSel?pp.color:hasCapacity?"#aaa":"#553333",
                     fontSize:10,cursor:"pointer",fontFamily:"inherit",
                     position:"relative",
                   }}>
@@ -1362,7 +1418,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
                 const ts=BT_STYLE[t];
                 return <button key={t} onClick={()=>setAddForm(f=>({...f,type:t}))} style={{
                   flex:1,padding:"6px",borderRadius:6,border:`1px solid ${addForm.type===t?ts.color:"#222"}`,
-                  background:addForm.type===t?ts.bg:"transparent",color:addForm.type===t?ts.color:"#555",
+                  background:addForm.type===t?ts.bg:"transparent",color:addForm.type===t?ts.color:"#999",
                   fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:addForm.type===t?700:400,
                 }}>{ts.label}</button>;
               })}
@@ -1376,27 +1432,27 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
             )}
             {addForm.type===BT.COMMERCIAL&&(
               <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:10,color:"#666"}}>Оплата:</div>
+                <div style={{fontSize:10,color:"#e8e8e0"}}>Оплата:</div>
                 {[["Оплачено",true,"#4ade80"],["Не оплачено",false,"#ef4444"]].map(([lbl,val,clr])=>(
                   <button key={lbl} onClick={()=>setAddForm(f=>({...f,paid:val}))} style={{
-                    padding:"4px 10px",borderRadius:5,border:`1px solid ${addForm.paid===val?clr:"#2a2a2a"}`,
+                    padding:"4px 10px",borderRadius:5,border:`1px solid ${addForm.paid===val?clr:"#aaa"}`,
                     background:addForm.paid===val?`${clr}18`:"transparent",
-                    color:addForm.paid===val?clr:"#555",fontSize:10,cursor:"pointer",fontFamily:"inherit",
+                    color:addForm.paid===val?clr:"#999",fontSize:10,cursor:"pointer",fontFamily:"inherit",
                   }}>{lbl}</button>
                 ))}
               </div>
             )}
             <input value={addForm.note} onChange={e=>setAddForm(f=>({...f,note:e.target.value}))}
-              placeholder="Заметка" style={{...inp,fontSize:11,color:"#888"}}/>
+              placeholder="Заметка" style={{...inp,fontSize:11,color:"#e8e8e0"}}/>
             <Row>
-              <Btn onClick={()=>setAddForm(null)} c="#444" b="#222" bg="transparent">Отмена</Btn>
-              <Btn onClick={confirmAdd} c="#e0e0d8" b="#333" bg="#1a1a1a" bold>Добавить</Btn>
+              <Btn onClick={()=>setAddForm(null)} c="#ccc" b="#222" bg="transparent">Отмена</Btn>
+              <Btn onClick={confirmAdd} c="#e0e0d8" b="#bbb" bg="#1a1a1a" bold>Добавить</Btn>
             </Row>
           </div>
         ):(
           bookings.length<3&&(
             <button onClick={startAdd} style={{width:"100%",padding:"9px",borderRadius:7,border:"1px dashed #2a2a2a",
-              background:"transparent",color:"#444",fontSize:12,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>
+              background:"transparent",color:"#e8e8e0",fontSize:12,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>
               + Добавить задание {bookings.length>0?`(${bookings.length}/3)`:""}
             </button>
           )
@@ -1411,7 +1467,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
         )}
         {bookings.length>0&&(
           <Row>
-            <Btn onClick={onClose} c="#555" b="#222" bg="transparent">Закрыть</Btn>
+            <Btn onClick={onClose} c="#999" b="#222" bg="transparent">Закрыть</Btn>
             <Btn onClick={()=>{onClearDay();onClose();}} c="#ef4444" b="#ef4444" bg="#1a0a0a" bold>Очистить день</Btn>
           </Row>
         )}
@@ -1433,15 +1489,15 @@ function WeekMenuModal({wk,current,note,onSet,onClose}){
       {v:WR.HYPE,l:"✦ Резерв (ажиотаж)",s:"Закрыта внешне, реально свободна",c:"#facc15"}].map(o=>(
       <div key={o.v} onClick={()=>setSel(o.v)} style={{padding:"8px 11px",borderRadius:8,marginBottom:6,cursor:"pointer",
         border:`1px solid ${sel===o.v?o.c:"#1e1e1e"}`,background:sel===o.v?`${o.c}12`:"#111"}}>
-        <div style={{fontSize:11,color:sel===o.v?o.c:"#888",fontWeight:600}}>{o.l}</div>
-        <div style={{fontSize:11,color:"#888",marginTop:1}}>{o.s}</div>
+        <div style={{fontSize:11,color:sel===o.v?o.c:"#ccc",fontWeight:600}}>{o.l}</div>
+        <div style={{fontSize:11,color:"#e8e8e0",marginTop:1}}>{o.s}</div>
       </div>
     ))}
     {sel!==WR.NONE&&<input value={txt} onChange={e=>setTxt(e.target.value)}
       placeholder={sel===WR.PERSONAL?"Пояснение (отпуск, проект…)":"Заметка для себя"} style={{...inp,marginTop:4,marginBottom:10}}/>}
     <Row style={{marginTop:sel===WR.NONE?10:0}}>
-      <Btn onClick={onClose} c="#444" b="#222" bg="transparent">Отмена</Btn>
-      <Btn onClick={()=>onSet(sel,txt.trim())} c="#e0e0d8" b="#333" bg="#1a1a1a" bold>Сохранить</Btn>
+      <Btn onClick={onClose} c="#ccc" b="#222" bg="transparent">Отмена</Btn>
+      <Btn onClick={()=>onSet(sel,txt.trim())} c="#e0e0d8" b="#bbb" bg="#1a1a1a" bold>Сохранить</Btn>
     </Row>
   </MB></Overlay>;
 }
@@ -1516,18 +1572,18 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
 
   return(
     <div style={{padding:16}}>
-      <div style={{fontSize:11,color:"#777",letterSpacing:2,textTransform:"uppercase",marginBottom:12}}>Финансы</div>
+      <div style={{fontSize:11,color:"#ddd",letterSpacing:2,textTransform:"uppercase",marginBottom:12}}>Финансы</div>
       {/* Show amounts toggle */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,padding:"10px 12px",
         background:"#111",borderRadius:8,border:"1px solid #222"}}>
         <div onClick={()=>setShowAmounts(p=>!p)} style={{
           width:38,height:22,borderRadius:11,cursor:"pointer",transition:"all .2s",flexShrink:0,
-          background:showAmounts?"#4ade80":"#333",position:"relative",
+          background:showAmounts?"#4ade80":"#bbb",position:"relative",
         }}>
           <div style={{position:"absolute",top:4,left:showAmounts?19:4,width:14,height:14,
             borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
         </div>
-        <span style={{fontSize:12,color:showAmounts?"#4ade80":"#666",fontWeight:600}}>
+        <span style={{fontSize:12,color:showAmounts?"#4ade80":"#aaa",fontWeight:600}}>
           Показывать суммы в отчётах
         </span>
       </div>
@@ -1536,7 +1592,7 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
       <div style={{background:"#1f0d0d",border:"1px solid #ef444444",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
         <div style={{fontSize:10,color:"#ef4444",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Общий долг (всё время)</div>
         <div style={{fontSize:24,fontWeight:700,color:allDebt>0?"#ef4444":"#4ade80"}}>{fmt(allDebt)}</div>
-        {allDebt>0&&<div style={{fontSize:10,color:"#666",marginTop:4}}>Не оплачено и не списано</div>}
+        {allDebt>0&&<div style={{fontSize:10,color:"#e8e8e0",marginTop:4}}>Не оплачено и не списано</div>}
       </div>
 
       {/* Period selector */}
@@ -1544,9 +1600,9 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
         {PERIODS.map(p=>(
           <button key={p.key} onClick={()=>setPeriodKey(p.key)} style={{
             padding:"5px 11px",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"inherit",
-            border:`1px solid ${periodKey===p.key?"#fbbf24":"#2a2a2a"}`,
+            border:`1px solid ${periodKey===p.key?"#fbbf24":"#aaa"}`,
             background:periodKey===p.key?"#1a1500":"#111",
-            color:periodKey===p.key?"#fbbf24":"#666",fontWeight:periodKey===p.key?700:400,
+            color:periodKey===p.key?"#fbbf24":"#aaa",fontWeight:periodKey===p.key?700:400,
           }}>{p.label}</button>
         ))}
       </div>
@@ -1555,7 +1611,7 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
         <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
           <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}
             style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
-          <span style={{color:"#555",fontSize:12}}>—</span>
+          <span style={{color:"#999",fontSize:12}}>—</span>
           <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)}
             style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
         </div>
@@ -1569,7 +1625,7 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
         </div>
         <div style={{background:"#1a0d0d",border:"1px solid #ef444433",borderRadius:9,padding:"10px 12px"}}>
           <div style={{fontSize:10,color:"#ef4444",marginBottom:4}}>Долг за период</div>
-          <div style={{fontSize:18,fontWeight:700,color:periodDebt>0?"#ef4444":"#666"}}>{fmt(periodDebt)}</div>
+          <div style={{fontSize:18,fontWeight:700,color:periodDebt>0?"#ef4444":"#aaa"}}>{fmt(periodDebt)}</div>
         </div>
       </div>
 
@@ -1583,7 +1639,7 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
       {/* Write-off list */}
       {showWriteOff&&(()=>{
         const debtBookings=allBookings.filter(b=>!b.paid);
-        if(!debtBookings.length) return <div style={{fontSize:12,color:"#555",textAlign:"center",padding:16}}>Долгов нет</div>;
+        if(!debtBookings.length) return <div style={{fontSize:12,color:"#999",textAlign:"center",padding:16}}>Долгов нет</div>;
         return(
           <div>
             {debtBookings.map(b=>{
@@ -1592,25 +1648,25 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
               return(
                 <div key={b.id} style={{
                   padding:"9px 12px",borderRadius:8,marginBottom:6,
-                  border:`1px solid ${isWO?"#2a2a2a":"#3a1a1a"}`,
+                  border:`1px solid ${isWO?"#aaa":"#3a1a1a"}`,
                   background:isWO?"#0d0d0d":"#130808",
                   opacity:isWO?0.5:1,
                 }}>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
                     <div style={{flex:1}}>
-                      <div style={{fontSize:12,color:isWO?"#444":"#ccc",fontWeight:600}}>
+                      <div style={{fontSize:12,color:isWO?"#ccc":"#ccc",fontWeight:600}}>
                         {b.client||"Клиент не указан"}
                         {b.amount&&<span style={{color:"#f87171",marginLeft:8}}>{parseFloat(b.amount).toLocaleString("ru-RU")} ₽</span>}
                       </div>
-                      <div style={{fontSize:10,color:"#555",marginTop:2}}>
+                      <div style={{fontSize:10,color:"#999",marginTop:2}}>
                         {b.date.toLocaleDateString("ru-RU")} · {pname}
                       </div>
                     </div>
                     <button onClick={()=>onWriteOff(p=>({...p,[b.id]:!p[b.id]}))} style={{
                       padding:"4px 10px",borderRadius:5,fontSize:10,cursor:"pointer",fontFamily:"inherit",
-                      border:`1px solid ${isWO?"#333":"#f87171"}`,
+                      border:`1px solid ${isWO?"#bbb":"#f87171"}`,
                       background:isWO?"transparent":"#1f0d0d",
-                      color:isWO?"#555":"#f87171",
+                      color:isWO?"#999":"#f87171",
                     }}>{isWO?"Восстановить":"Списать"}</button>
                   </div>
                 </div>
@@ -1646,7 +1702,7 @@ function AddWeekModal({existingWKs,onAdd,onClose}){
   return <Overlay><MB style={{maxHeight:"88vh",overflowY:"auto",padding:"16px 13px"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
       <ML>Добавить неделю</ML>
-      <button onClick={onClose} style={bSty("#555","#222")}>✕</button>
+      <button onClick={onClose} style={bSty("#999","#222")}>✕</button>
     </div>
     {/* Direction toggle */}
     <div style={{display:"flex",gap:6,marginBottom:14}}>
@@ -1655,18 +1711,18 @@ function AddWeekModal({existingWKs,onAdd,onClose}){
           flex:1,padding:"7px",borderRadius:7,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
           border:`1px solid ${direction===d?clr:"#222"}`,
           background:direction===d?`${clr}18`:"transparent",
-          color:direction===d?clr:"#555",
+          color:direction===d?clr:"#999",
         }}>{lbl}</button>
       ))}
     </div>
     {Object.entries(byYear).map(([yr,mks])=>(
       <div key={yr}>
-        <div style={{fontSize:11,color:"#888",letterSpacing:2,textTransform:"uppercase",padding:"6px 0 3px",borderBottom:"1px solid #1e1e1e",marginBottom:4}}>{yr}</div>
+        <div style={{fontSize:11,color:"#e8e8e0",letterSpacing:2,textTransform:"uppercase",padding:"6px 0 3px",borderBottom:"1px solid #1e1e1e",marginBottom:4}}>{yr}</div>
         {mks.map(mk=>{
           const{label,ms}=byMonth[mk];const isO=open===mk;
           return <div key={mk} style={{marginBottom:3}}>
             <div onClick={()=>setOpen(isO?null:mk)} style={{fontSize:11,color:"#999",padding:"4px 2px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-              <span style={{fontSize:9,color:"#555"}}>{isO?"▼":"▶"}</span>{label}
+              <span style={{fontSize:9,color:"#999"}}>{isO?"▼":"▶"}</span>{label}
             </div>
             {isO&&ms.map(m=>{
               const wk=weekKey(m);const ex=existingWKs.has(wk);
@@ -1674,8 +1730,8 @@ function AddWeekModal({existingWKs,onAdd,onClose}){
                 padding:"6px 10px",borderRadius:6,marginBottom:2,cursor:ex?"default":"pointer",
                 border:`1px solid ${ex?"#181818":"#252525"}`,background:ex?"#0d0d0d":"#141414",opacity:ex?0.3:1,
                 display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span style={{fontSize:12,color:ex?"#444":"#ccc"}}>{fmtShort(m)} – {fmtShort(addDays(m,6))}</span>
-                {ex?<span style={{fontSize:9,color:"#555"}}>есть</span>:<span style={{fontSize:16,color:"#4ade80",lineHeight:1}}>+</span>}
+                <span style={{fontSize:12,color:ex?"#ccc":"#ccc"}}>{fmtShort(m)} – {fmtShort(addDays(m,6))}</span>
+                {ex?<span style={{fontSize:9,color:"#999"}}>есть</span>:<span style={{fontSize:16,color:"#4ade80",lineHeight:1}}>+</span>}
               </div>;
             })}
           </div>;
@@ -1700,9 +1756,9 @@ function ClientInput({value,onChange,suggestions,placeholder,style}){
           border:"1px solid #333",borderRadius:6,zIndex:50,maxHeight:120,overflowY:"auto"}}>
           {filtered.map(s=>(
             <div key={s} onMouseDown={()=>{onChange(s);setShow(false);}}
-              style={{padding:"6px 10px",fontSize:11,color:"#ccc",cursor:"pointer",
+              style={{padding:"6px 10px",fontSize:11,color:"#e8e8e0",cursor:"pointer",
                 borderBottom:"1px solid #222"}}
-              onMouseEnter={e=>e.target.style.background="#2a2a2a"}
+              onMouseEnter={e=>e.target.style.background="#aaa"}
               onMouseLeave={e=>e.target.style.background="transparent"}>
               {s}
             </div>
@@ -1714,10 +1770,10 @@ function ClientInput({value,onChange,suggestions,placeholder,style}){
 }
 
 function Badge({color,children}){ return <span style={{fontSize:11,color,border:`1px solid ${color}44`,borderRadius:4,padding:"1px 5px",background:`${color}12`}}>{children}</span>; }
-const inp={width:"100%",padding:"8px 10px",background:"#0d0d0d",border:"1px solid #2a2a2a",borderRadius:7,color:"#e0e0d8",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box",marginBottom:10};
+const inp={width:"100%",padding:"8px 10px",background:"#0d0d0d",border:"1px solid #2a2a2a",borderRadius:7,color:"#f0f0ec",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box",marginBottom:10};
 function bSty(c,b){return{fontSize:10,padding:"2px 7px",borderRadius:4,border:`1px solid ${b}`,background:"transparent",color:c,cursor:"pointer",fontFamily:"inherit"};}
 function Overlay({children}){return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,padding:16}}>{children}</div>;}
 function MB({children,style}){return <div style={{background:"#141414",border:"1px solid #222",borderRadius:14,padding:18,width:"100%",maxWidth:390,...style}}>{children}</div>;}
-function ML({children}){return <div style={{fontSize:9,letterSpacing:3,color:"#3a3a3a",textTransform:"uppercase",marginBottom:7}}>{children}</div>;}
+function ML({children}){return <div style={{fontSize:9,letterSpacing:3,color:"#ddd",textTransform:"uppercase",marginBottom:7}}>{children}</div>;}
 function Row({children,style}){return <div style={{display:"flex",gap:8,...style}}>{children}</div>;}
 function Btn({children,onClick,c,b,bg,bold}){return <button onClick={onClick} style={{flex:1,padding:"8px",borderRadius:7,border:`1px solid ${b}`,background:bg,color:c,fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:bold?700:400}}>{children}</button>;}
