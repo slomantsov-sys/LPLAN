@@ -50,21 +50,21 @@ const PRIORITY_KEYS = ["a","b","c","d","e","f","g","h","i","j"];
 
 // Default priority config
 const DEFAULT_PRIORITIES = {
-  a: { name:"", maxPerWeek:1, color:"#f87171" },
-  b: { name:"", maxPerWeek:1, color:"#fb923c" },
-  c: { name:"", maxPerWeek:2, color:"#facc15" },
-  d: { name:"", maxPerWeek:3, color:"#a3e635" },
-  e: { name:"", maxPerWeek:3, color:"#4ade80" },
-  f: { name:"", maxPerWeek:3, color:"#34d399" },
-  g: { name:"", maxPerWeek:3, color:"#22d3ee" },
-  h: { name:"", maxPerWeek:3, color:"#60a5fa" },
-  i: { name:"", maxPerWeek:3, color:"#a78bfa" },
-  j: { name:"", maxPerWeek:3, color:"#e879f9" },
+  a: { name:"", maxPerWeek:1, color:"#f87171", canBeCommercial:true },
+  b: { name:"", maxPerWeek:1, color:"#fb923c", canBeCommercial:true },
+  c: { name:"", maxPerWeek:2, color:"#facc15" , canBeCommercial:true},
+  d: { name:"", maxPerWeek:3, color:"#a3e635" , canBeCommercial:true},
+  e: { name:"", maxPerWeek:3, color:"#4ade80" , canBeCommercial:true},
+  f: { name:"", maxPerWeek:3, color:"#34d399" , canBeCommercial:true},
+  g: { name:"", maxPerWeek:3, color:"#22d3ee" , canBeCommercial:true},
+  h: { name:"", maxPerWeek:3, color:"#60a5fa" , canBeCommercial:true},
+  i: { name:"", maxPerWeek:3, color:"#a78bfa" , canBeCommercial:true},
+  j: { name:"", maxPerWeek:3, color:"#e879f9" , canBeCommercial:true},
 };
 
 const BT = { COMMERCIAL:"commercial", NONCOMMERCIAL:"noncommercial" };
 const BT_STYLE = {
-  [BT.COMMERCIAL]:    { color:"#fb923c", bg:"#1f0e00", label:"Коммерческая" },
+  [BT.COMMERCIAL]:    { color:"#ef4444", bg:"#1f0000", label:"Коммерческая" },
   [BT.NONCOMMERCIAL]: { color:"#60a5fa", bg:"#0d1120", label:"Некоммерческая" },
 };
 
@@ -160,6 +160,7 @@ function buildCSV(weeks, days, priorities){
 
 const REMINDER_KEY="schedule_last_export";
 const CHECK_KEY="schedule_last_check";
+const GCAL_KEY="schedule_last_gcal_sync";
 const PRIORITIES_KEY="schedule_priorities_v2";
 const WEEKS_KEY="schedule_weeks_v1";
 const DAYS_KEY="schedule_days_v1";
@@ -181,6 +182,7 @@ export default function App(){
   const [addOpen,setAddOpen]   = useState(false);
   const [showReminder,setShowReminder]     = useState(false);
   const [showCheckReminder,setShowCheckReminder] = useState(false);
+  const [showGcalReminder,setShowGcalReminder] = useState(false);
   const [writtenOff,setWrittenOff] = useState({});
   const [showAmounts,setShowAmounts] = useState(true);
   const [clientPriority,setClientPriority] = useState(null); // null = show picker
@@ -255,6 +257,7 @@ export default function App(){
     });
     if(daysSince(REMINDER_KEY)>=60) setShowReminder(true);
     if(daysSince(CHECK_KEY)>=14)    setShowCheckReminder(true);
+    if(daysSince(GCAL_KEY)>=7)      setShowGcalReminder(true);
   },[]);
 
   const sortedWKs = Object.keys(weeks).sort();
@@ -389,6 +392,67 @@ export default function App(){
     e.target.value="";
   };
 
+  // ── Export to Google Calendar (.ics) ──
+  const handleICS=()=>{
+    const lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//LPlan//RU","CALSCALE:GREGORIAN","METHOD:PUBLISH"];
+    Object.entries(days).forEach(([dk,d])=>{
+      (d.bookings||[]).forEach(b=>{
+        const date=parseLocalDate(dk);
+        const pname=priorities[b.priority]?.name||"";
+        const type=b.type===BT.COMMERCIAL?"Коммерческая":"Некоммерческая";
+        const summary=[pname,type,b.client].filter(Boolean).join(" · ");
+        const dtStamp=new Date().toISOString().replace(/[-:]/g,"").slice(0,15)+"Z";
+        const y=date.getFullYear();
+        const m=String(date.getMonth()+1).padStart(2,"0");
+        const day=String(date.getDate()).padStart(2,"0");
+
+        lines.push("BEGIN:VEVENT");
+        lines.push(`UID:lplan-${b.id}@lplan`);
+        lines.push(`DTSTAMP:${dtStamp}`);
+        lines.push(`SUMMARY:${summary}`);
+
+        if(b.allDay){
+          lines.push(`DTSTART;VALUE=DATE:${y}${m}${day}`);
+          // End = next day for all-day
+          const nextDay=new Date(date); nextDay.setDate(nextDay.getDate()+1);
+          const ny=nextDay.getFullYear();
+          const nm=String(nextDay.getMonth()+1).padStart(2,"0");
+          const nd=String(nextDay.getDate()).padStart(2,"0");
+          lines.push(`DTEND;VALUE=DATE:${ny}${nm}${nd}`);
+        } else if(b.timeStart){
+          const [sh,sm]=b.timeStart.split(":"); 
+          lines.push(`DTSTART:${y}${m}${day}T${sh}${sm}00`);
+          if(b.timeEnd){
+            const [eh,em]=b.timeEnd.split(":");
+            lines.push(`DTEND:${y}${m}${day}T${eh}${em}00`);
+          } else {
+            // Default 1 hour
+            const endH=String(parseInt(sh)+1).padStart(2,"0");
+            lines.push(`DTEND:${y}${m}${day}T${endH}${sm}00`);
+          }
+        } else {
+          lines.push(`DTSTART;VALUE=DATE:${y}${m}${day}`);
+          const nextDay=new Date(date); nextDay.setDate(nextDay.getDate()+1);
+          lines.push(`DTEND;VALUE=DATE:${nextDay.getFullYear()}${String(nextDay.getMonth()+1).padStart(2,"0")}${String(nextDay.getDate()).padStart(2,"0")}`);
+        }
+
+        if(b.location) lines.push(`LOCATION:${b.location}`);
+        const desc=[b.note, b.amount?`Стоимость: ${b.amount} €`:"", b.paid?"Оплачено":""].filter(Boolean).join("\n");
+        if(desc) lines.push(`DESCRIPTION:${desc}`);
+        lines.push("END:VEVENT");
+      });
+    });
+    lines.push("END:VCALENDAR");
+    const blob=new Blob([lines.join("\r\n")],{type:"text/calendar;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=`lplan_${new Date().toISOString().slice(0,10)}.ics`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setLS(GCAL_KEY,new Date().toISOString());
+    setShowGcalReminder(false);
+  };
+
   const handleExport=()=>{
     const csv=buildCSV(weeks,days,priorities);
     navigator.clipboard?.writeText(csv).then(()=>{
@@ -512,7 +576,7 @@ export default function App(){
             {readOnly&&<span style={{marginLeft:7,fontSize:11,color:"#ddd"}}>{ago<52?`${ago} нед. назад`:`${Math.round(ago/52)} г. назад`}</span>}
           </div>
           <div style={{display:"flex",gap:5,alignItems:"center"}}>
-            {stats.comm>0&&<Badge color="#fb923c">{stats.comm} ком{stats.unpaid>0&&<span style={{color:"#ef4444"}}> ·{stats.unpaid}₽</span>}</Badge>}
+            {stats.comm>0&&<Badge color="#ef4444">{stats.comm} ком{stats.unpaid>0&&<span style={{color:"#ef4444"}}> ·{stats.unpaid}€</span>}</Badge>}
             {stats.nonc>0&&<Badge color="#60a5fa">{stats.nonc} нек</Badge>}
             {stats.open>0&&!booked&&<Badge color="#4ade80">{stats.open} св</Badge>}
             {hasR&&<span style={{fontSize:10,color:rs.labelColor}}>{rs.label}</span>}
@@ -605,6 +669,11 @@ export default function App(){
           </button>
           <input ref={importRef} type="file" accept=".json" onChange={handleRestore}
             style={{display:"none"}}/>
+          <button onClick={handleICS} title="Экспорт в Google Calendar (.ics)"
+            style={{width:38,height:38,borderRadius:8,border:"2px solid #1a2a3a",background:"#111",color:"#4fc3f7",
+              fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+            📆
+          </button>
           <button onClick={()=>setAddOpen(true)} title="Добавить неделю"
             style={{width:38,height:38,borderRadius:8,border:"2px solid #2a2a2a",background:"#111",color:"#e8e8e0",
               fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>＋</button>
@@ -628,10 +697,26 @@ export default function App(){
         </div>
       )}
 
+      {/* GCAL REMINDER */}
+      {showGcalReminder&&(
+        <div style={{background:"#0a1520",borderBottom:"1px solid #1a3a5a",padding:"9px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+          <div style={{fontSize:12,color:"#4fc3f7"}}>📆 Прошла неделя — синхронизируй данные с Google Календарём</div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>{handleICS();}} style={{padding:"4px 12px",borderRadius:5,border:"1px solid #4fc3f7",background:"#0d1f2a",color:"#4fc3f7",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+              Скачать .ics
+            </button>
+            <button onClick={()=>{setLS(GCAL_KEY,new Date().toISOString());setShowGcalReminder(false);}} style={{padding:"4px 10px",borderRadius:5,border:"1px solid #333",background:"transparent",color:"#888",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>
+              Уже сделал ✓
+            </button>
+            <button onClick={()=>{setLS(GCAL_KEY,new Date().toISOString());setShowGcalReminder(false);}} style={{padding:"4px 8px",borderRadius:5,border:"1px solid #222",background:"transparent",color:"#555",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+          </div>
+        </div>
+      )}
+
       {/* LEGEND */}
       {view==="schedule"&&(
         <div style={{padding:"7px 14px",borderBottom:"1px solid #111",display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-          {[[BT_STYLE.commercial.color,"Коммерч."],[BT_STYLE.noncommercial.color,"Некоммерч."],["#4ade80","Свободен"],["#facc15","Скрыт"],["#a78bfa","Личн. бронь"]].map(([c,l])=>(
+          {[["#ef4444","Коммерч."],[BT_STYLE.noncommercial.color,"Некоммерч."],["#4ade80","Свободен"],["#facc15","Скрыт"],["#a78bfa","Личн. бронь"]].map(([c,l])=>(
             <div key={l} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#e8e8e0"}}>
               <div style={{width:7,height:7,borderRadius:2,background:c}}/>{l}
             </div>
@@ -754,7 +839,7 @@ function PrioritySettings({priorities, onChange, onClose}){
         return(
           <div key={pk} style={{marginBottom:10,padding:"10px 12px",borderRadius:9,
             border:`1px solid ${p.color}33`,background:`${p.color}08`,
-            display:"grid",gridTemplateColumns:"20px 1fr 90px 60px",gap:10,alignItems:"center"}}>
+            display:"grid",gridTemplateColumns:"20px 1fr 90px 60px 80px",gap:10,alignItems:"center"}}>
             {/* Color dot + key */}
             <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
               <div style={{width:9,height:9,borderRadius:"50%",background:p.color}}/>
@@ -783,6 +868,17 @@ function PrioritySettings({priorities, onChange, onClose}){
               <div style={{fontSize:9,color:"#ddd",letterSpacing:1,textTransform:"uppercase"}}>цвет</div>
               <input type="color" value={p.color} onChange={e=>update(pk,"color",e.target.value)}
                 style={{width:32,height:24,border:"none",background:"none",cursor:"pointer",padding:0,borderRadius:4}}/>
+            </div>
+            {/* Can be commercial toggle */}
+            <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
+              <div style={{fontSize:8,color:"#ddd",letterSpacing:1,textTransform:"uppercase",textAlign:"center"}}>коммерц.</div>
+              <div onClick={()=>update(pk,"canBeCommercial",!p.canBeCommercial)} style={{
+                width:34,height:19,borderRadius:10,cursor:"pointer",transition:"all .2s",
+                background:p.canBeCommercial?"#ef4444":"#333",position:"relative",flexShrink:0,
+              }}>
+                <div style={{position:"absolute",top:3,left:p.canBeCommercial?17:3,width:13,height:13,
+                  borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+              </div>
             </div>
           </div>
         );
@@ -856,7 +952,7 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
 
   const bookings=mode==="free"?[]:getBookings();
 
-  const fmt=(n)=>Number(n).toLocaleString("ru-RU")+" ₽";
+  const fmt=(n)=>Number(n).toLocaleString("ru-RU")+" €";
 
   const copyText=()=>{
     if(mode==="free"){
@@ -947,9 +1043,9 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
             const nonCCount=bookings.filter(b=>b.type!=="commercial").length;
             return(
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-                <div style={{background:"#1a0900",border:"1px solid #fb923c44",borderRadius:9,padding:"10px 12px",textAlign:"center"}}>
-                  <div style={{fontSize:10,color:"#fb923c",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}}>Коммерческих</div>
-                  <div style={{fontSize:26,fontWeight:700,color:"#fb923c"}}>{commCount}</div>
+                <div style={{background:"#1a0000",border:"1px solid #ef444444",borderRadius:9,padding:"10px 12px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"#ef4444",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}}>Коммерческих</div>
+                  <div style={{fontSize:26,fontWeight:700,color:"#ef4444"}}>{commCount}</div>
                 </div>
                 <div style={{background:"#0d1120",border:"1px solid #60a5fa44",borderRadius:9,padding:"10px 12px",textAlign:"center"}}>
                   <div style={{fontSize:10,color:"#60a5fa",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}}>Некоммерческих</div>
@@ -977,7 +1073,7 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
                       <span style={{fontSize:12,fontWeight:700,color:"#f0f0ec"}}>
                         {b.date.toLocaleDateString("ru-RU",{day:"numeric",month:"long",weekday:"short"})}
                       </span>
-                      <span style={{fontSize:10,color:isComm?"#fb923c":"#60a5fa",fontWeight:600}}>
+                      <span style={{fontSize:10,color:isComm?"#ef4444":"#60a5fa",fontWeight:600}}>
                         {isComm?"Коммерческая":"Некоммерческая"}
                       </span>
                     </div>
@@ -987,7 +1083,13 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
                       {isComm&&<span style={{color:b.paid?"#4ade80":"#ef4444"}}>{b.paid?"✓ Оплачено":"✗ Не оплачено"}</span>}
                       {showAmounts&&isComm&&b.amount&&<span style={{color:"#fbbf24",fontWeight:700}}>{fmt(b.amount)}</span>}
                     </div>
-                    {b.note&&<div style={{fontSize:10,color:"#999",marginTop:4,fontStyle:"italic"}}>{b.note}</div>}
+                    {(b.timeStart||b.allDay)&&(
+                      <div style={{fontSize:10,color:"#ccc",marginTop:3}}>
+                        🕐 {b.allDay?"Весь день":b.timeStart+(b.timeEnd?" – "+b.timeEnd:"")}
+                      </div>
+                    )}
+                    {b.location&&<div style={{fontSize:10,color:"#ccc",marginTop:2}}>📍 {b.location}</div>}
+                    {b.note&&<div style={{fontSize:10,color:"#999",marginTop:3,fontStyle:"italic"}}>{b.note}</div>}
                   </div>
                 );
               })}
@@ -1207,8 +1309,8 @@ function DayRow({monday,wk,getDayInfo,todayKey,days,priorities,onDayClick,onLong
           const hasComm=bookings.some(b=>b.type===BT.COMMERCIAL);
           const hasNonC=bookings.some(b=>b.type===BT.NONCOMMERCIAL);
           const hasUnpaid=bookings.some(b=>b.type===BT.COMMERCIAL&&!b.paid);
-          if(hasComm&&hasNonC){ bottomMixed=true; stripeColor="#fb923c"; }
-          else if(hasComm)     stripeColor="#fb923c";
+          if(hasComm&&hasNonC){ bottomMixed=true; stripeColor="#ef4444"; }
+          else if(hasComm)     stripeColor="#ef4444";
           else                 stripeColor="#60a5fa";
           if(hasUnpaid) topStripe=true;
         }
@@ -1243,12 +1345,12 @@ function DayRow({monday,wk,getDayInfo,todayKey,days,priorities,onDayClick,onLong
 
             {/* LAYER 1 — bottom: type stripe (commercial/noncommercial) z=1 */}
             {booked&&stripeColor&&!bottomMixed&&(
-              <div style={{position:"absolute",bottom:0,left:0,right:0,height:"25%",background:stripeColor,opacity:0.9,zIndex:1}}/>
+              <div style={{position:"absolute",bottom:0,left:0,right:0,height:"25%",background:stripeColor,opacity:0.9,zIndex:1,borderTop:"1.5px solid rgba(255,255,255,0.5)"}}/>
             )}
             {booked&&bottomMixed&&(
               <>
-                <div style={{position:"absolute",bottom:0,left:0,width:"50%",height:"25%",background:"#fb923c",opacity:0.9,zIndex:1}}/>
-                <div style={{position:"absolute",bottom:0,left:"50%",right:0,height:"25%",opacity:0.9,zIndex:1,
+                <div style={{position:"absolute",bottom:0,left:0,width:"50%",height:"25%",background:"#ef4444",opacity:0.9,zIndex:1,borderTop:"1.5px solid rgba(255,255,255,0.5)",borderRight:"1px solid rgba(255,255,255,0.3)"}}/>
+                <div style={{position:"absolute",bottom:0,left:"50%",right:0,height:"25%",opacity:0.9,zIndex:1,borderTop:"1.5px solid rgba(255,255,255,0.5)",
                   background:"repeating-linear-gradient(45deg,#60a5fa 0px,#60a5fa 3px,#1a1a2a 3px,#1a1a2a 6px)"}}/>
               </>
             )}
@@ -1300,7 +1402,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
   // Which priorities have capacity this week?
   const avPriorities=availablePriorities(wk,days,priorities);
 
-  const startAdd=()=>setAddForm({priority:avPriorities[0]||PRIORITY_KEYS[0],type:BT.COMMERCIAL,client:"",paid:false,amount:"",note:""});
+  const startAdd=()=>setAddForm({priority:avPriorities[0]||PRIORITY_KEYS[0],type:BT.COMMERCIAL,client:"",paid:false,amount:"",note:"",allDay:false,timeStart:"",timeEnd:"",location:""});
   const confirmAdd=()=>{
     if(!addForm) return;
     onAddBooking(dk,{id:Date.now().toString(),...addForm,client:addForm.client.trim(),note:addForm.note.trim()},wk);
@@ -1375,7 +1477,32 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
                     </div>
                   )}
                   <input value={b.note||""} onChange={e=>onUpdateBooking(dk,b.id,{note:e.target.value})}
-                    placeholder="Заметка" style={{...inp,marginBottom:0,fontSize:11,color:"#e8e8e0"}}/>
+                    placeholder="Заметка" style={{...inp,fontSize:11,color:"#e8e8e0"}}/>
+                  <input value={b.location||""} onChange={e=>onUpdateBooking(dk,b.id,{location:e.target.value})}
+                    placeholder="📍 Место" style={{...inp,fontSize:11,color:"#e8e8e0"}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,cursor:"pointer"}}
+                    onClick={()=>onUpdateBooking(dk,b.id,{allDay:!b.allDay,timeStart:"",timeEnd:""})}>
+                    <div style={{width:34,height:19,borderRadius:10,transition:"all .2s",
+                      background:b.allDay?"#4ade80":"#333",position:"relative",flexShrink:0}}>
+                      <div style={{position:"absolute",top:3,left:b.allDay?17:3,width:13,height:13,
+                        borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+                    </div>
+                    <span style={{fontSize:11,color:b.allDay?"#4ade80":"#888"}}>Весь день</span>
+                  </div>
+                  {!b.allDay&&(
+                    <div style={{display:"flex",gap:8,marginBottom:0,alignItems:"center"}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:9,color:"#888",marginBottom:3}}>Начало</div>
+                        <input type="time" value={b.timeStart||""} onChange={e=>onUpdateBooking(dk,b.id,{timeStart:e.target.value})}
+                          style={{...inp,marginBottom:0,fontSize:12,colorScheme:"dark"}}/>
+                      </div>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:9,color:"#888",marginBottom:3}}>Конец</div>
+                        <input type="time" value={b.timeEnd||""} onChange={e=>onUpdateBooking(dk,b.id,{timeEnd:e.target.value})}
+                          style={{...inp,marginBottom:0,fontSize:12,colorScheme:"dark"}}/>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1414,7 +1541,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
             </div>
             {/* Type */}
             <div style={{display:"flex",gap:6,marginBottom:8}}>
-              {[BT.COMMERCIAL,BT.NONCOMMERCIAL].map(t=>{
+              {[BT.COMMERCIAL,BT.NONCOMMERCIAL].filter(t=>t!==BT.COMMERCIAL||priorities[addForm.priority]?.canBeCommercial!==false).map(t=>{
                 const ts=BT_STYLE[t];
                 return <button key={t} onClick={()=>setAddForm(f=>({...f,type:t}))} style={{
                   flex:1,padding:"6px",borderRadius:6,border:`1px solid ${addForm.type===t?ts.color:"#222"}`,
@@ -1427,7 +1554,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
               suggestions={knownClients} placeholder="Имя клиента" style={{...inp,fontSize:12}}/>
             {addForm.type===BT.COMMERCIAL&&(
               <input value={addForm.amount||""} onChange={e=>setAddForm(f=>({...f,amount:e.target.value}))}
-                placeholder="Стоимость (₽)" type="number" min="0"
+                placeholder="Стоимость (€)" type="number" min="0"
                 style={{...inp,fontSize:12,marginBottom:8}}/>
             )}
             {addForm.type===BT.COMMERCIAL&&(
@@ -1444,6 +1571,36 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
             )}
             <input value={addForm.note} onChange={e=>setAddForm(f=>({...f,note:e.target.value}))}
               placeholder="Заметка" style={{...inp,fontSize:11,color:"#e8e8e0"}}/>
+            {/* Location */}
+            <input value={addForm.location||""} onChange={e=>setAddForm(f=>({...f,location:e.target.value}))}
+              placeholder="📍 Место (необязательно)" style={{...inp,fontSize:11,color:"#e8e8e0"}}/>
+            {/* Time */}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+              <div onClick={()=>setAddForm(f=>({...f,allDay:!f.allDay,timeStart:"",timeEnd:""}))} style={{
+                display:"flex",alignItems:"center",gap:7,cursor:"pointer",
+              }}>
+                <div style={{width:34,height:19,borderRadius:10,transition:"all .2s",
+                  background:addForm.allDay?"#4ade80":"#333",position:"relative",flexShrink:0}}>
+                  <div style={{position:"absolute",top:3,left:addForm.allDay?17:3,width:13,height:13,
+                    borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+                </div>
+                <span style={{fontSize:11,color:addForm.allDay?"#4ade80":"#888"}}>Весь день</span>
+              </div>
+            </div>
+            {!addForm.allDay&&(
+              <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:9,color:"#888",marginBottom:3}}>Начало</div>
+                  <input type="time" value={addForm.timeStart||""} onChange={e=>setAddForm(f=>({...f,timeStart:e.target.value}))}
+                    style={{...inp,marginBottom:0,fontSize:12,colorScheme:"dark"}}/>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:9,color:"#888",marginBottom:3}}>Конец</div>
+                  <input type="time" value={addForm.timeEnd||""} onChange={e=>setAddForm(f=>({...f,timeEnd:e.target.value}))}
+                    style={{...inp,marginBottom:0,fontSize:12,colorScheme:"dark"}}/>
+                </div>
+              </div>
+            )}
             <Row>
               <Btn onClick={()=>setAddForm(null)} c="#ccc" b="#222" bg="transparent">Отмена</Btn>
               <Btn onClick={confirmAdd} c="#e0e0d8" b="#bbb" bg="#1a1a1a" bold>Добавить</Btn>
@@ -1568,7 +1725,7 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
     .filter(b=>!b.paid&&!writtenOff[b.id])
     .reduce((s,b)=>s+parseFloat(b.amount||0),0);
 
-  const fmt=(n)=>n.toLocaleString("ru-RU")+" ₽";
+  const fmt=(n)=>n.toLocaleString("ru-RU")+" €";
 
   return(
     <div style={{padding:16}}>
@@ -1656,7 +1813,7 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
                     <div style={{flex:1}}>
                       <div style={{fontSize:12,color:isWO?"#ccc":"#ccc",fontWeight:600}}>
                         {b.client||"Клиент не указан"}
-                        {b.amount&&<span style={{color:"#f87171",marginLeft:8}}>{parseFloat(b.amount).toLocaleString("ru-RU")} ₽</span>}
+                        {b.amount&&<span style={{color:"#f87171",marginLeft:8}}>{parseFloat(b.amount).toLocaleString("ru-RU")} €</span>}
                       </div>
                       <div style={{fontSize:10,color:"#999",marginTop:2}}>
                         {b.date.toLocaleDateString("ru-RU")} · {pname}
