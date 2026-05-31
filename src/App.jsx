@@ -1661,177 +1661,200 @@ function WeekMenuModal({wk,current,note,onSet,onClose}){
 
 // ─── FinanceView ─────────────────────────────────────────────────────────────
 function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, setShowAmounts}){
+  const [finTab,setFinTab]=useState("overview");
   const [periodKey,setPeriodKey]=useState("cur_month");
-  const [showWriteOff,setShowWriteOff]=useState(false);
   const [customFrom,setCustomFrom]=useState("");
   const [customTo,setCustomTo]=useState("");
 
   const now=new Date(); now.setHours(23,59,59,999);
   const today=new Date(); today.setHours(0,0,0,0);
 
-  // Compute range from, to
   const getRange=()=>{
     const y=today.getFullYear(), m=today.getMonth();
-    if(periodKey==="cur_month")   return [new Date(y,m,1), now];
-    if(periodKey==="prev_month"){
-      const pm=m===0?11:m-1, py=m===0?y-1:y;
-      return [new Date(py,pm,1), new Date(y,m,0,23,59,59,999)];
-    }
-    if(periodKey==="quarter"){
-      const qStart=new Date(y, Math.floor(m/3)*3, 1);
-      return [qStart, now];
-    }
-    if(periodKey==="year")        return [new Date(y,0,1), now];
+    if(periodKey==="cur_month") return [new Date(y,m,1), now];
+    if(periodKey==="prev_month"){ const pm=m===0?11:m-1,py=m===0?y-1:y; return [new Date(py,pm,1),new Date(y,m,0,23,59,59,999)]; }
+    if(periodKey==="quarter") return [new Date(y,Math.floor(m/3)*3,1), now];
+    if(periodKey==="year") return [new Date(y,0,1), now];
     if(periodKey==="custom"){
       const f=customFrom?new Date(customFrom):new Date(0);
-      const t=customTo?new Date(customTo):now;
-      t.setHours(23,59,59,999);
-      return [f,t];
+      const t=customTo?new Date(customTo):now; t.setHours(23,59,59,999); return [f,t];
     }
-    return [new Date(0), now]; // all time
+    return [new Date(0),now];
   };
 
   const PERIODS=[
-    {key:"cur_month",  label:"Этот месяц"},
-    {key:"prev_month", label:"Прошлый месяц"},
-    {key:"quarter",    label:"Квартал"},
-    {key:"year",       label:"Этот год"},
-    {key:"custom",     label:"Выбрать даты"},
-    {key:"all",        label:"Всё время"},
+    {key:"cur_month",label:"Этот месяц"},{key:"prev_month",label:"Прошлый"},
+    {key:"quarter",label:"Квартал"},{key:"year",label:"Этот год"},
+    {key:"custom",label:"Даты"},{key:"all",label:"Всё время"},
   ];
 
-  // Collect all commercial bookings
   const allBookings=[];
   Object.entries(days).forEach(([dk,d])=>{
     (d.bookings||[]).forEach(b=>{
       if(b.type!=="commercial") return;
-      allBookings.push({...b, dk, date:parseLocalDate(dk)});
+      allBookings.push({...b,dk,date:parseLocalDate(dk)});
     });
   });
 
   const [from,to]=getRange();
   const periodBookings=allBookings.filter(b=>b.date>=from&&b.date<=to);
+  const periodPaid=periodBookings.filter(b=>b.paid&&!writtenOff[b.id]).reduce((s,b)=>s+parseFloat(b.amount||0),0);
+  const periodDebt=periodBookings.filter(b=>!b.paid&&!writtenOff[b.id]).reduce((s,b)=>s+parseFloat(b.amount||0),0);
+  const overdueBookings=allBookings.filter(b=>b.date<today&&!b.paid&&!writtenOff[b.id]).sort((a,b2)=>a.date-b2.date);
+  const overdueTotal=overdueBookings.reduce((s,b)=>s+parseFloat(b.amount||0),0);
+  const upcomingBookings=allBookings.filter(b=>b.date>=today&&!b.paid&&!writtenOff[b.id]).sort((a,b2)=>a.date-b2.date);
+  const upcomingTotal=upcomingBookings.reduce((s,b)=>s+parseFloat(b.amount||0),0);
 
-  // All-time debt (unpaid, not written off)
-  const allDebt=allBookings
-    .filter(b=>!b.paid&&!writtenOff[b.id])
-    .reduce((s,b)=>s+parseFloat(b.amount||0),0);
+  const fmt=(n)=>Number(n).toLocaleString("ru-RU")+" €";
 
-  const periodPaid=periodBookings
-    .filter(b=>b.paid&&!writtenOff[b.id])
-    .reduce((s,b)=>s+parseFloat(b.amount||0),0);
+  const BRow=({b,writeOffBtn=false})=>{
+    const isWO=writtenOff[b.id];
+    const pname=priorities[b.priority]?.name||"";
+    const overdue=b.date<today&&!b.paid;
+    return(
+      <div style={{padding:"9px 12px",borderRadius:8,marginBottom:6,
+        border:`1px solid ${isWO?"#222":overdue?"#ef444444":"#1a2a1a"}`,
+        background:isWO?"#0a0a0a":overdue?"#130808":"#0a130a",opacity:isWO?0.4:1}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,color:"#e8e8e0",fontWeight:600,marginBottom:2}}>
+              {b.client||"Клиент не указан"}
+              {b.amount&&showAmounts&&<span style={{color:overdue?"#ef4444":"#fbbf24",marginLeft:8,fontWeight:700}}>{parseFloat(b.amount).toLocaleString("ru-RU")} €</span>}
+            </div>
+            <div style={{fontSize:10,color:"#aaa",display:"flex",gap:8,flexWrap:"wrap"}}>
+              <span>{b.date.toLocaleDateString("ru-RU",{day:"numeric",month:"short",year:"numeric"})}</span>
+              {pname&&<span style={{color:priorities[b.priority]?.color||"#888"}}>◆ {pname}</span>}
+              {overdue&&<span style={{color:"#ef4444",fontWeight:700}}>⚠ просрочено</span>}
+            </div>
+          </div>
+          {writeOffBtn
+            ?<button onClick={()=>onWriteOff(p=>({...p,[b.id]:!p[b.id]}))} style={{
+                padding:"3px 9px",borderRadius:5,fontSize:10,cursor:"pointer",fontFamily:"inherit",flexShrink:0,
+                border:`1px solid ${isWO?"#555":"#f87171"}`,background:isWO?"transparent":"#1f0d0d",color:isWO?"#666":"#f87171",
+              }}>{isWO?"Восст.":"Списать"}</button>
+            :<span style={{fontSize:9,color:b.paid?"#4ade80":"#ef4444",border:`1px solid ${b.paid?"#4ade8044":"#ef444444"}`,borderRadius:4,padding:"2px 6px",flexShrink:0}}>
+              {b.paid?"оплачено":"не оплачено"}
+            </span>
+          }
+        </div>
+      </div>
+    );
+  };
 
-  const periodDebt=periodBookings
-    .filter(b=>!b.paid&&!writtenOff[b.id])
-    .reduce((s,b)=>s+parseFloat(b.amount||0),0);
-
-  const fmt=(n)=>n.toLocaleString("ru-RU")+" €";
+  const TS=(active,color="#fbbf24")=>({
+    flex:1,padding:"7px 2px",borderRadius:7,fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:active?700:400,
+    border:`1px solid ${active?color:"#222"}`,background:active?`${color}18`:"#111",color:active?color:"#777",textAlign:"center",
+  });
 
   return(
     <div style={{padding:16}}>
       <div style={{fontSize:11,color:"#ddd",letterSpacing:2,textTransform:"uppercase",marginBottom:12}}>Финансы</div>
-      {/* Show amounts toggle */}
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,padding:"10px 12px",
-        background:"#111",borderRadius:8,border:"1px solid #222"}}>
-        <div onClick={()=>setShowAmounts(p=>!p)} style={{
-          width:38,height:22,borderRadius:11,cursor:"pointer",transition:"all .2s",flexShrink:0,
-          background:showAmounts?"#4ade80":"#bbb",position:"relative",
-        }}>
-          <div style={{position:"absolute",top:4,left:showAmounts?19:4,width:14,height:14,
-            borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+
+      {/* Toggle amounts */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"9px 12px",background:"#111",borderRadius:8,border:"1px solid #222"}}>
+        <div onClick={()=>setShowAmounts(p=>!p)} style={{width:38,height:22,borderRadius:11,cursor:"pointer",transition:"all .2s",flexShrink:0,background:showAmounts?"#4ade80":"#333",position:"relative"}}>
+          <div style={{position:"absolute",top:4,left:showAmounts?19:4,width:14,height:14,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
         </div>
-        <span style={{fontSize:12,color:showAmounts?"#4ade80":"#aaa",fontWeight:600}}>
-          Показывать суммы в отчётах
-        </span>
+        <span style={{fontSize:12,color:showAmounts?"#4ade80":"#888",fontWeight:600}}>Показывать суммы в отчётах</span>
       </div>
 
-      {/* All-time debt banner */}
-      <div style={{background:"#1f0d0d",border:"1px solid #ef444444",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
-        <div style={{fontSize:10,color:"#ef4444",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Общий долг (всё время)</div>
-        <div style={{fontSize:24,fontWeight:700,color:allDebt>0?"#ef4444":"#4ade80"}}>{fmt(allDebt)}</div>
-        {allDebt>0&&<div style={{fontSize:10,color:"#e8e8e0",marginTop:4}}>Не оплачено и не списано</div>}
+      {/* Always-visible summary cards */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+        <div style={{background:"#1a0000",border:"1px solid #ef444455",borderRadius:9,padding:"10px 12px",cursor:"pointer"}} onClick={()=>setFinTab("overdue")}>
+          <div style={{fontSize:9,color:"#ef4444",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>⚠ Просроченный долг</div>
+          <div style={{fontSize:20,fontWeight:700,color:overdueTotal>0?"#ef4444":"#4ade80"}}>{showAmounts?fmt(overdueTotal):`${overdueBookings.length} зад.`}</div>
+          <div style={{fontSize:9,color:"#888",marginTop:2}}>{overdueBookings.length} неоплач.</div>
+        </div>
+        <div style={{background:"#001a0a",border:"1px solid #4ade8055",borderRadius:9,padding:"10px 12px",cursor:"pointer"}} onClick={()=>setFinTab("upcoming")}>
+          <div style={{fontSize:9,color:"#4ade80",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>📅 Предстоящие</div>
+          <div style={{fontSize:20,fontWeight:700,color:"#4ade80"}}>{showAmounts?fmt(upcomingTotal):`${upcomingBookings.length} зад.`}</div>
+          <div style={{fontSize:9,color:"#888",marginTop:2}}>{upcomingBookings.length} запланир.</div>
+        </div>
       </div>
 
-      {/* Period selector */}
-      <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
-        {PERIODS.map(p=>(
-          <button key={p.key} onClick={()=>setPeriodKey(p.key)} style={{
-            padding:"5px 11px",borderRadius:6,fontSize:11,cursor:"pointer",fontFamily:"inherit",
-            border:`1px solid ${periodKey===p.key?"#fbbf24":"#aaa"}`,
-            background:periodKey===p.key?"#1a1500":"#111",
-            color:periodKey===p.key?"#fbbf24":"#aaa",fontWeight:periodKey===p.key?700:400,
-          }}>{p.label}</button>
-        ))}
+      {/* Tabs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:14}}>
+        <button style={TS(finTab==="overview","#fbbf24")} onClick={()=>setFinTab("overview")}>📊 Обзор</button>
+        <button style={TS(finTab==="overdue","#ef4444")} onClick={()=>setFinTab("overdue")}>⚠ Долги</button>
+        <button style={TS(finTab==="upcoming","#4ade80")} onClick={()=>setFinTab("upcoming")}>📅 Планы</button>
+        <button style={TS(finTab==="writeoff","#f87171")} onClick={()=>setFinTab("writeoff")}>✗ Списать</button>
       </div>
-      {/* Custom date range */}
-      {periodKey==="custom"&&(
-        <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
-          <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}
-            style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
-          <span style={{color:"#999",fontSize:12}}>—</span>
-          <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)}
-            style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
+
+      {/* OVERVIEW */}
+      {finTab==="overview"&&(
+        <div>
+          <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
+            {PERIODS.map(p=>(
+              <button key={p.key} onClick={()=>setPeriodKey(p.key)} style={{
+                padding:"5px 10px",borderRadius:6,fontSize:10,cursor:"pointer",fontFamily:"inherit",
+                border:`1px solid ${periodKey===p.key?"#fbbf24":"#333"}`,
+                background:periodKey===p.key?"#1a1500":"#111",
+                color:periodKey===p.key?"#fbbf24":"#999",fontWeight:periodKey===p.key?700:400,
+              }}>{p.label}</button>
+            ))}
+          </div>
+          {periodKey==="custom"&&(
+            <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+              <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
+              <span style={{color:"#888"}}>—</span>
+              <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
+            </div>
+          )}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <div style={{background:"#0d1f14",border:"1px solid #4ade8033",borderRadius:9,padding:"10px 12px"}}>
+              <div style={{fontSize:10,color:"#4ade80",marginBottom:4}}>Оплачено</div>
+              <div style={{fontSize:18,fontWeight:700,color:"#4ade80"}}>{showAmounts?fmt(periodPaid):`${periodBookings.filter(b=>b.paid).length} зад.`}</div>
+            </div>
+            <div style={{background:"#1a0d0d",border:"1px solid #ef444433",borderRadius:9,padding:"10px 12px"}}>
+              <div style={{fontSize:10,color:"#ef4444",marginBottom:4}}>Не оплачено</div>
+              <div style={{fontSize:18,fontWeight:700,color:periodDebt>0?"#ef4444":"#888"}}>{showAmounts?fmt(periodDebt):`${periodBookings.filter(b=>!b.paid).length} зад.`}</div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Period stats */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-        <div style={{background:"#0d1f14",border:"1px solid #4ade8033",borderRadius:9,padding:"10px 12px"}}>
-          <div style={{fontSize:10,color:"#4ade80",marginBottom:4}}>Оплачено</div>
-          <div style={{fontSize:18,fontWeight:700,color:"#4ade80"}}>{fmt(periodPaid)}</div>
-        </div>
-        <div style={{background:"#1a0d0d",border:"1px solid #ef444433",borderRadius:9,padding:"10px 12px"}}>
-          <div style={{fontSize:10,color:"#ef4444",marginBottom:4}}>Долг за период</div>
-          <div style={{fontSize:18,fontWeight:700,color:periodDebt>0?"#ef4444":"#aaa"}}>{fmt(periodDebt)}</div>
-        </div>
-      </div>
-
-      {/* Write-off button */}
-      <button onClick={()=>setShowWriteOff(p=>!p)} style={{
-        width:"100%",padding:"9px",borderRadius:7,marginBottom:12,
-        border:"1px solid #3a2a2a",background:showWriteOff?"#1a0d0d":"#111",
-        color:"#f87171",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
-      }}>{showWriteOff?"▲ Скрыть долги":"▼ Управление долгами"}</button>
-
-      {/* Write-off list */}
-      {showWriteOff&&(()=>{
-        const debtBookings=allBookings.filter(b=>!b.paid);
-        if(!debtBookings.length) return <div style={{fontSize:12,color:"#999",textAlign:"center",padding:16}}>Долгов нет</div>;
-        return(
-          <div>
-            {debtBookings.map(b=>{
-              const isWO=writtenOff[b.id];
-              const pname=priorities[b.priority]?.name||"";
-              return(
-                <div key={b.id} style={{
-                  padding:"9px 12px",borderRadius:8,marginBottom:6,
-                  border:`1px solid ${isWO?"#aaa":"#3a1a1a"}`,
-                  background:isWO?"#0d0d0d":"#130808",
-                  opacity:isWO?0.5:1,
-                }}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:12,color:isWO?"#ccc":"#ccc",fontWeight:600}}>
-                        {b.client||"Клиент не указан"}
-                        {b.amount&&<span style={{color:"#f87171",marginLeft:8}}>{parseFloat(b.amount).toLocaleString("ru-RU")} €</span>}
-                      </div>
-                      <div style={{fontSize:10,color:"#999",marginTop:2}}>
-                        {b.date.toLocaleDateString("ru-RU")} · {pname}
-                      </div>
-                    </div>
-                    <button onClick={()=>onWriteOff(p=>({...p,[b.id]:!p[b.id]}))} style={{
-                      padding:"4px 10px",borderRadius:5,fontSize:10,cursor:"pointer",fontFamily:"inherit",
-                      border:`1px solid ${isWO?"#bbb":"#f87171"}`,
-                      background:isWO?"transparent":"#1f0d0d",
-                      color:isWO?"#999":"#f87171",
-                    }}>{isWO?"Восстановить":"Списать"}</button>
-                  </div>
-                </div>
-              );
-            })}
+      {/* OVERDUE */}
+      {finTab==="overdue"&&(
+        <div>
+          <div style={{fontSize:10,color:"#ef4444",marginBottom:10,fontWeight:600}}>
+            Просроченные неоплаченные ({overdueBookings.length}){showAmounts&&overdueTotal>0&&` — ${fmt(overdueTotal)}`}
           </div>
-        );
-      })()}
+          {overdueBookings.length===0
+            ?<div style={{fontSize:12,color:"#555",textAlign:"center",padding:20}}>Просроченных долгов нет 🎉</div>
+            :overdueBookings.map(b=><BRow key={b.id} b={b}/>)
+          }
+        </div>
+      )}
+
+      {/* UPCOMING */}
+      {finTab==="upcoming"&&(
+        <div>
+          <div style={{fontSize:10,color:"#4ade80",marginBottom:10,fontWeight:600}}>
+            Предстоящие платежи ({upcomingBookings.length}){showAmounts&&upcomingTotal>0&&` — ${fmt(upcomingTotal)}`}
+          </div>
+          {upcomingBookings.length===0
+            ?<div style={{fontSize:12,color:"#555",textAlign:"center",padding:20}}>Предстоящих платежей нет</div>
+            :upcomingBookings.map(b=><BRow key={b.id} b={b}/>)
+          }
+        </div>
+      )}
+
+      {/* WRITE-OFF */}
+      {finTab==="writeoff"&&(
+        <div>
+          <div style={{fontSize:10,color:"#f87171",marginBottom:10,fontWeight:600}}>Списать безнадёжные долги</div>
+          {allBookings.filter(b=>!b.paid).length===0
+            ?<div style={{fontSize:12,color:"#555",textAlign:"center",padding:20}}>Долгов нет</div>
+            :allBookings.filter(b=>!b.paid).sort((a,b2)=>a.date-b2.date).map(b=><BRow key={b.id} b={b} writeOffBtn={true}/>)
+          }
+          {Object.values(writtenOff).some(v=>v)&&(
+            <div style={{marginTop:14}}>
+              <div style={{fontSize:10,color:"#555",marginBottom:8}}>— Списанные (не учитываются в долге) —</div>
+              {allBookings.filter(b=>writtenOff[b.id]).map(b=><BRow key={b.id} b={b} writeOffBtn={true}/>)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
