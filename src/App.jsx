@@ -1,0 +1,2040 @@
+import React from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+
+// ─── Supabase ─────────────────────────────────────────────────────────────────
+const SUPABASE_URL = "https://rkjgnczsfqmkhrkmckot.supabase.co";
+const SUPABASE_KEY = "sb_publishable_KM1Bj1wCZlhnkNgRACo_fQ_Lahnz14Q";
+
+async function sbFetch(path, options={}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+    ...options,
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": "return=representation",
+      ...(options.headers||{}),
+    }
+  });
+  if(!res.ok) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function loadFromSupabase() {
+  try {
+    const data = await sbFetch("/planner_data?id=eq.main&select=*");
+    if(data && data[0]) return data[0];
+  } catch(e) { console.error("Load error:", e); }
+  return null;
+}
+
+async function saveToSupabase(payload) {
+  try {
+    await sbFetch("/planner_data?id=eq.main", {
+      method: "PATCH",
+      body: JSON.stringify({...payload, updated_at: new Date().toISOString()}),
+    });
+  } catch(e) { console.error("Save error:", e); }
+}
+
+
+// ─── Responsive scale ────────────────────────────────────────────────────────
+function useScale(){
+  const [w,setW]=useState(typeof window!=="undefined"?window.innerWidth:375);
+  useEffect(()=>{
+    const h=()=>setW(window.innerWidth);
+    window.addEventListener("resize",h);
+    return ()=>window.removeEventListener("resize",h);
+  },[]);
+  if(w>=1200) return 1.5;
+  if(w>=768)  return 1.2;
+  return 1;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const DAYS_SHORT   = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
+const DAYS_FULL    = ["Понедельник","Вторник","Среда","Четверг","Пятница","Суббота","Воскресенье"];
+const MONTHS_RU    = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+const MONTHS_NOM   = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+const MONTHS_SHORT = ["Янв","Фев","Мар","Апр","Май","Июн","Июл","Авг","Сен","Окт","Ноя","Дек"];
+
+const PRIORITY_KEYS = ["a","b","c","d","e","f","g","h","i","j"];
+
+// Default priority config
+const DEFAULT_PRIORITIES = {
+  a: { name:"", maxPerWeek:1, color:"#f87171", canBeCommercial:true },
+  b: { name:"", maxPerWeek:1, color:"#fb923c", canBeCommercial:true },
+  c: { name:"", maxPerWeek:2, color:"#facc15" , canBeCommercial:true},
+  d: { name:"", maxPerWeek:3, color:"#a3e635" , canBeCommercial:true},
+  e: { name:"", maxPerWeek:3, color:"#4ade80" , canBeCommercial:true},
+  f: { name:"", maxPerWeek:3, color:"#34d399" , canBeCommercial:true},
+  g: { name:"", maxPerWeek:3, color:"#22d3ee" , canBeCommercial:true},
+  h: { name:"", maxPerWeek:3, color:"#60a5fa" , canBeCommercial:true},
+  i: { name:"", maxPerWeek:3, color:"#a78bfa" , canBeCommercial:true},
+  j: { name:"", maxPerWeek:3, color:"#e879f9" , canBeCommercial:true},
+};
+
+const BT = { COMMERCIAL:"commercial", NONCOMMERCIAL:"noncommercial" };
+const BT_STYLE = {
+  [BT.COMMERCIAL]:    { color:"#ef4444", bg:"#1f0000", label:"Коммерческая" },
+  [BT.NONCOMMERCIAL]: { color:"#60a5fa", bg:"#0d1120", label:"Некоммерческая" },
+};
+
+const S  = { CLOSED:"closed", OPEN:"open", HIDDEN:"hidden", PERSONAL:"personal" };
+const WR = { NONE:"none", PERSONAL:"personal", HYPE:"hype" };
+const WR_STYLE = {
+  [WR.PERSONAL]: { border:"#a78bfa", bg:"#100d1f", label:"🔒 Личная бронь",     labelColor:"#a78bfa" },
+  [WR.HYPE]:     { border:"#facc15", bg:"#1a1800", label:"✦ Резерв (ажиотаж)", labelColor:"#facc15" },
+};
+
+// ─── Date helpers ─────────────────────────────────────────────────────────────
+function getMonday(d){ const r=new Date(d); r.setHours(0,0,0,0); const w=r.getDay(); r.setDate(r.getDate()+(w===0?-6:1-w)); return r; }
+function addDays(d,n){ const r=new Date(d); r.setDate(r.getDate()+n); return r; }
+function addWeeks(d,n){ return addDays(d,n*7); }
+function dateKey(d){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,"0");
+  const day=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function weekKey(m){ return dateKey(m); }
+function parseLocalDate(dk){
+  // Parse YYYY-MM-DD as local date (not UTC)
+  const [y,m,d]=dk.split("-").map(Number);
+  return new Date(y,m-1,d);
+}
+function fmtShort(d){ return `${d.getDate()} ${MONTHS_RU[d.getMonth()]}`; }
+function fmtFull(d){ return `${DAYS_FULL[(d.getDay()+6)%7]}, ${d.getDate()} ${MONTHS_RU[d.getMonth()]} ${d.getFullYear()}`; }
+function parseWK(wk){ return getMonday(parseLocalDate(wk)); }
+function weeksAgo(wk){ const now=new Date(); now.setHours(0,0,0,0); return Math.floor((now-addDays(parseWK(wk),6))/(7*24*3600*1000)); }
+
+function randomDaysForWeek(wk){
+  let seed=0; for(let i=0;i<wk.length;i++) seed=(seed*31+wk.charCodeAt(i))>>>0;
+  const pool=[0,1,2,3,4,5];
+  function next(){ seed=(seed*1664525+1013904223)>>>0; return seed; }
+  for(let i=pool.length-1;i>0;i--){ const j=next()%(i+1); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+  return pool.slice(0,3).sort((a,b)=>a-b);
+}
+
+function initWeeks(){
+  const today=new Date(); today.setHours(0,0,0,0);
+  const start=getMonday(today); const w={};
+  for(let i=0;i<13;i++){
+    const m=addWeeks(start,i); const wk=weekKey(m);
+    w[wk]={ availDays:randomDaysForWeek(wk), reserve:WR.NONE, reserveNote:"", collapsed:false };
+  }
+  return w;
+}
+
+// ─── Priority helpers ─────────────────────────────────────────────────────────
+// Count how many bookings of a given priority exist in a week
+function countPriorityInWeek(wk, priorityKey, days){
+  const monday=parseWK(wk); let count=0;
+  for(let i=0;i<7;i++){
+    const dk=dateKey(addDays(monday,i));
+    const bookings=days[dk]?.bookings||[];
+    bookings.forEach(b=>{ if(b.priority===priorityKey) count++; });
+  }
+  return count;
+}
+
+// For a given week, which priorities still have capacity?
+function availablePriorities(wk, days, priorities){
+  return PRIORITY_KEYS.filter(pk=>{
+    const p=priorities[pk];
+    if(!p || !p.name) return false;
+    const used=countPriorityInWeek(wk,pk,days);
+    return used < p.maxPerWeek;
+  });
+}
+
+// ─── CSV Export ───────────────────────────────────────────────────────────────
+function buildCSV(weeks, days, priorities){
+  const rows=[["Неделя","Дата","День","Приоритет","Тип","Клиент","Оплачено","Заметка"]];
+  Object.keys(weeks).sort().forEach(wk=>{
+    const w=weeks[wk]; const m=parseWK(wk);
+    const wlabel=`${fmtShort(m)} – ${fmtShort(addDays(m,6))} ${m.getFullYear()}`;
+    for(let i=0;i<7;i++){
+      const d=addDays(m,i); const dk=dateKey(d);
+      const bookings=days[dk]?.bookings||[];
+      if(!bookings.length) continue;
+      bookings.forEach(b=>{
+        const pname=priorities[b.priority]?.name||b.priority||"";
+        const note=w.reserve===WR.PERSONAL?(w.reserveNote||"Личная бронь"):w.reserve===WR.HYPE?(w.reserveNote||"Резерв"):"";
+        rows.push([wlabel,`${d.getDate()}.${d.getMonth()+1}.${d.getFullYear()}`,DAYS_FULL[i],
+          pname, BT_STYLE[b.type]?.label||b.type, b.client||"",
+          b.type===BT.COMMERCIAL?(b.paid?"Да":"Нет"):"—", note]);
+      });
+    }
+  });
+  return rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+}
+
+const REMINDER_KEY="schedule_last_export";
+const CHECK_KEY="schedule_last_check";
+const GCAL_KEY="schedule_last_gcal_sync";
+const PRIORITIES_KEY="schedule_priorities_v2";
+const WEEKS_KEY="schedule_weeks_v1";
+const DAYS_KEY="schedule_days_v1";
+const WRITTEN_OFF_KEY="schedule_written_off_v1";
+function getLS(k){ try{return localStorage.getItem(k);}catch{return null;} }
+function setLS(k,v){ try{localStorage.setItem(k,v);}catch{} }
+function daysSince(k){ const l=getLS(k); if(!l) return Infinity; return Math.floor((Date.now()-new Date(l).getTime())/(24*3600*1000)); }
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+export default function App(){
+  const scale=useScale();
+  const [weeks,setWeeks] = useState(initWeeks);
+  const [days,setDays] = useState({});
+  const [priorities,setPriorities] = useState(()=>{
+    try{ const s=getLS(PRIORITIES_KEY); if(s) return JSON.parse(s); }catch{}
+    return DEFAULT_PRIORITIES;
+  });
+  const [view,setView]         = useState("schedule");
+  const [modal,setModal]       = useState(null);
+  const [addOpen,setAddOpen]   = useState(false);
+  const [showReminder,setShowReminder]     = useState(false);
+  const [showCheckReminder,setShowCheckReminder] = useState(false);
+  const [showGcalReminder,setShowGcalReminder] = useState(false);
+  const [writtenOff,setWrittenOff] = useState({});
+  const [showAmounts,setShowAmounts] = useState(true);
+  const [clientPriority,setClientPriority] = useState(null); // null = show picker
+  const [showBooked,setShowBooked] = useState(false);
+  const [selPeriod,setSelPeriod] = useState(0);
+
+  const today=new Date(); today.setHours(0,0,0,0);
+  const todayKey=dateKey(today);
+
+  // Persist priorities
+  useEffect(()=>{ setLS(PRIORITIES_KEY, JSON.stringify(priorities)); },[priorities]);
+
+  // Load from Supabase on mount
+  useEffect(()=>{
+    loadFromSupabase().then(data=>{
+      if(!data) return;
+      if(data.weeks && Object.keys(data.weeks).length>0) setWeeks(data.weeks);
+      if(data.days && Object.keys(data.days).length>0) setDays(data.days);
+      if(data.written_off) setWrittenOff(data.written_off);
+      if(data.show_amounts !== undefined) setShowAmounts(data.show_amounts);
+    });
+  },[]);
+
+  // Save to Supabase (debounced 2s)
+  const saveTimer = useRef(null);
+  useEffect(()=>{
+    if(saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(()=>{
+      saveToSupabase({
+        weeks, days,
+        written_off: writtenOff,
+        show_amounts: showAmounts,
+      });
+      setLS(WEEKS_KEY, JSON.stringify(weeks));
+      setLS(DAYS_KEY, JSON.stringify(days));
+    }, 2000);
+    return ()=>{ if(saveTimer.current) clearTimeout(saveTimer.current); };
+  },[weeks, days, writtenOff, showAmounts]);
+
+  useEffect(()=>{
+    const now=new Date(); now.setHours(0,0,0,0);
+    const start=getMonday(now);
+    setWeeks(prev=>{
+      const next={};
+      // Deduplicate: re-key all weeks using local dateKey to fix any UTC-shifted keys
+      Object.entries(prev).forEach(([wk,data])=>{
+        try{
+          const m=getMonday(parseLocalDate(wk));
+          const newWk=dateKey(m); // re-generate key with local date
+          if(!next[newWk]) next[newWk]=data; // keep first occurrence
+        }catch{ next[wk]=prev[wk]; }
+      });
+      // Add 13 future weeks
+      for(let i=0;i<13;i++){
+        const m=addWeeks(start,i); const wk=weekKey(m);
+        if(!next[wk]) next[wk]={availDays:randomDaysForWeek(wk),reserve:WR.NONE,reserveNote:"",collapsed:false};
+      }
+      // Always ensure last 4 past weeks exist
+      for(let i=1;i<=4;i++){
+        const m=addWeeks(start,-i); const wk=weekKey(m);
+        if(!next[wk]) next[wk]={availDays:randomDaysForWeek(wk),reserve:WR.NONE,reserveNote:"",collapsed:true};
+      }
+      Object.keys(next).forEach(wk=>{
+        const end=addDays(parseWK(wk),6);
+        if(end<now){
+          const ago=Math.floor((now-end)/(7*24*3600*1000));
+          if(ago>104) delete next[wk];
+          else if(!next[wk].collapsed) next[wk]={...next[wk],collapsed:true};
+        }
+      });
+      return next;
+    });
+    if(daysSince(REMINDER_KEY)>=60) setShowReminder(true);
+    if(daysSince(CHECK_KEY)>=14)    setShowCheckReminder(true);
+    if(daysSince(GCAL_KEY)>=7)      setShowGcalReminder(true);
+  },[]);
+
+  const sortedWKs = Object.keys(weeks).sort();
+  const isPast    = wk => addDays(parseWK(wk),6)<today;
+  const futureWKs = sortedWKs.filter(wk=>!isPast(wk));
+  const pastWKs   = sortedWKs.filter(wk=>isPast(wk)).reverse();
+  const pastByYear= {};
+  pastWKs.forEach(wk=>{ const yr=wk.slice(0,4); if(!pastByYear[yr]) pastByYear[yr]=[]; pastByYear[yr].push(wk); });
+
+  const getDayInfo=useCallback((dk,wk,idx)=>{
+    const w=weeks[wk]; if(!w) return{status:S.CLOSED,bookings:[]};
+    const d=days[dk]||{};
+    const bookings=d.bookings||[];
+    if(bookings.length>0) return{status:"booked",bookings};
+    if(d.status) return{status:d.status,bookings:[]};
+    if(w.reserve===WR.PERSONAL) return{status:S.PERSONAL,bookings:[]};
+    if(w.reserve===WR.HYPE)     return{status:S.HIDDEN,bookings:[]};
+    return{status:w.availDays.includes(idx)?S.OPEN:S.CLOSED,bookings:[]};
+  },[days,weeks]);
+
+  const toggleCollapse = wk=>setWeeks(p=>({...p,[wk]:{...p[wk],collapsed:!p[wk].collapsed}}));
+  const removeWeek     = wk=>setWeeks(p=>{const n={...p};delete n[wk];return n;});
+  const setWeekReserve = (wk,r,note)=>setWeeks(p=>({...p,[wk]:{...p[wk],reserve:r,reserveNote:note}}));
+  const toggleAvailDay = (wk,i)=>setWeeks(p=>{
+    const cur=p[wk].availDays;
+    return{...p,[wk]:{...p[wk],availDays:cur.includes(i)?cur.filter(d=>d!==i):[...cur,i].sort()}};
+  });
+
+  const onDayClick=(dk,wk,idx)=>{
+    const{status}=getDayInfo(dk,wk,idx);
+    setModal({type:"dayDetail",dk,wk,dayIdx:idx});
+  };
+  const onLongPress=(dk,wk,idx)=>{
+    const{status}=getDayInfo(dk,wk,idx);
+    if(status===S.OPEN)   setDays(p=>({...p,[dk]:{...(p[dk]||{}),status:S.HIDDEN}}));
+    else if(status===S.HIDDEN) setDays(p=>{const n={...p};delete n[dk];return n;});
+  };
+
+  const addBooking=(dk,booking,wk)=>{
+    // 1. Add the booking to days state
+    setDays(p=>({...p,[dk]:{...(p[dk]||{}),status:undefined,bookings:[...(p[dk]?.bookings||[]),booking]}}));
+
+    // 2. After booking: count booked days + open days in this week, close one open day if booked>=3
+    if(!wk) return;
+    const currentDays = days; // snapshot from closure — always fresh since called after render
+    const currentWeek = weeks[wk];
+    if(!currentWeek) return;
+
+    const monday=parseWK(wk);
+
+    // count booked days AFTER adding this booking (dk is now booked)
+    let bookedCount=0;
+    const openDayIndices=[];
+    for(let i=0;i<7;i++){
+      const d2=addDays(monday,i); const dk2=dateKey(d2);
+      const bk2= dk2===dk ? [booking] : (currentDays[dk2]?.bookings||[]);
+      if(bk2.length>0){ bookedCount++; continue; }
+      // check if day is open
+      const st2=currentDays[dk2]?.status;
+      if(dk2===dk) continue; // just booked, skip
+      const isOpen = st2===S.OPEN || (!st2 && currentWeek.availDays?.includes(i));
+      if(isOpen) openDayIndices.push(i);
+    }
+
+    if(bookedCount>=3 && openDayIndices.length>0){
+      // pick a random open day index and remove it from availDays
+      const randIdx=openDayIndices[Math.floor(Math.random()*openDayIndices.length)];
+      const victimDk=dateKey(addDays(monday,randIdx));
+
+      // If day has explicit OPEN status in days state — set to CLOSED there
+      setDays(p=>{
+        const cur=p[victimDk]||{};
+        if(cur.status===S.OPEN) return{...p,[victimDk]:{...cur,status:S.CLOSED}};
+        return p;
+      });
+
+      // Also remove from week's availDays
+      setWeeks(p=>{
+        const w=p[wk]; if(!w) return p;
+        return{...p,[wk]:{...w,availDays:w.availDays.filter(d=>d!==randIdx)}};
+      });
+    }
+  };
+  const updateBooking=(dk,id,changes)=>setDays(p=>{
+    const cur=p[dk]||{};
+    return{...p,[dk]:{...cur,bookings:(cur.bookings||[]).map(b=>b.id===id?{...b,...changes}:b)}};
+  });
+  const removeBooking=(dk,id)=>setDays(p=>{
+    const cur=p[dk]||{};
+    return{...p,[dk]:{...cur,bookings:(cur.bookings||[]).filter(b=>b.id!==id)}};
+  });
+
+
+  const [backupMsg,setBackupMsg]=useState(""); // "saved" | "restored" | "error"
+  const importRef = useRef(null);
+  // Collect all known client names for autocomplete
+  const knownClients=useMemo(()=>{
+    const names=new Set();
+    Object.values(days).forEach(d=>(d.bookings||[]).forEach(b=>{ if(b.client?.trim()) names.add(b.client.trim()); }));
+    return [...names].sort();
+  },[days]);
+  // ── Backup / Restore ──
+  const handleBackup=()=>{
+    const data={weeks,days,priorities,writtenOff,showAmounts,_version:1,_date:new Date().toISOString()};
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=`planner_backup_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setBackupMsg("saved"); setTimeout(()=>setBackupMsg(""),2500);
+  };
+
+  const handleRestore=(e)=>{
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{
+      try{
+        const data=JSON.parse(ev.target.result);
+        if(data.weeks) setWeeks(data.weeks);
+        if(data.days) setDays(data.days);
+        if(data.priorities) setPriorities(data.priorities);
+        if(data.writtenOff) setWrittenOff(data.writtenOff);
+        if(data.showAmounts!==undefined) setShowAmounts(data.showAmounts);
+        setBackupMsg("restored"); setTimeout(()=>setBackupMsg(""),3000);
+      }catch{
+        setBackupMsg("error"); setTimeout(()=>setBackupMsg(""),3000);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value="";
+  };
+
+  // ── Export to Google Calendar (.ics) ──
+  const handleICS=()=>{
+    const lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//LPlan//RU","CALSCALE:GREGORIAN","METHOD:PUBLISH"];
+    Object.entries(days).forEach(([dk,d])=>{
+      (d.bookings||[]).forEach(b=>{
+        const date=parseLocalDate(dk);
+        const pname=priorities[b.priority]?.name||"";
+        const type=b.type===BT.COMMERCIAL?"Коммерческая":"Некоммерческая";
+        const summary=[pname,type,b.client].filter(Boolean).join(" · ");
+        const dtStamp=new Date().toISOString().replace(/[-:]/g,"").slice(0,15)+"Z";
+        const y=date.getFullYear();
+        const m=String(date.getMonth()+1).padStart(2,"0");
+        const day=String(date.getDate()).padStart(2,"0");
+
+        lines.push("BEGIN:VEVENT");
+        lines.push(`UID:lplan-${b.id}@lplan`);
+        lines.push(`DTSTAMP:${dtStamp}`);
+        lines.push(`SUMMARY:${summary}`);
+
+        if(b.allDay){
+          lines.push(`DTSTART;VALUE=DATE:${y}${m}${day}`);
+          // End = next day for all-day
+          const nextDay=new Date(date); nextDay.setDate(nextDay.getDate()+1);
+          const ny=nextDay.getFullYear();
+          const nm=String(nextDay.getMonth()+1).padStart(2,"0");
+          const nd=String(nextDay.getDate()).padStart(2,"0");
+          lines.push(`DTEND;VALUE=DATE:${ny}${nm}${nd}`);
+        } else if(b.timeStart){
+          const [sh,sm]=b.timeStart.split(":"); 
+          lines.push(`DTSTART:${y}${m}${day}T${sh}${sm}00`);
+          if(b.timeEnd){
+            const [eh,em]=b.timeEnd.split(":");
+            lines.push(`DTEND:${y}${m}${day}T${eh}${em}00`);
+          } else {
+            // Default 1 hour
+            const endH=String(parseInt(sh)+1).padStart(2,"0");
+            lines.push(`DTEND:${y}${m}${day}T${endH}${sm}00`);
+          }
+        } else {
+          lines.push(`DTSTART;VALUE=DATE:${y}${m}${day}`);
+          const nextDay=new Date(date); nextDay.setDate(nextDay.getDate()+1);
+          lines.push(`DTEND;VALUE=DATE:${nextDay.getFullYear()}${String(nextDay.getMonth()+1).padStart(2,"0")}${String(nextDay.getDate()).padStart(2,"0")}`);
+        }
+
+        if(b.location) lines.push(`LOCATION:${b.location}`);
+        const desc=[b.note, b.amount?`Стоимость: ${b.amount} €`:"", b.paid?"Оплачено":""].filter(Boolean).join("\n");
+        if(desc) lines.push(`DESCRIPTION:${desc}`);
+        // Add VALARM reminders
+        (b.reminders||[]).forEach(mins=>{
+          lines.push("BEGIN:VALARM");
+          lines.push("ACTION:DISPLAY");
+          lines.push(`DESCRIPTION:Напоминание: ${summary}`);
+          lines.push(`TRIGGER:-PT${mins}M`);
+          lines.push("END:VALARM");
+        });
+        lines.push("END:VEVENT");
+      });
+    });
+    lines.push("END:VCALENDAR");
+    const blob=new Blob([lines.join("\r\n")],{type:"text/calendar;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=`lplan_${new Date().toISOString().slice(0,10)}.ics`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setLS(GCAL_KEY,new Date().toISOString());
+    setShowGcalReminder(false);
+  };
+
+  const handleExport=()=>{
+    const csv=buildCSV(weeks,days,priorities);
+    navigator.clipboard?.writeText(csv).then(()=>{
+      setCsvCopied(true); setTimeout(()=>setCsvCopied(false),2500);
+    });
+    setLS(REMINDER_KEY,new Date().toISOString()); setShowReminder(false);
+  };
+
+  // Client text: group by priority name, skip days with bookings
+  // Build client text for a specific priority key
+  const clientTextForPriority=(pk)=>{
+    const p=priorities[pk]; if(!p||!p.name) return "";
+    // Collect available dates for this priority
+    const datelist=[]; // [{date, dayIdx}]
+    futureWKs.forEach(wk=>{
+      const w=weeks[wk]; if(w.reserve!==WR.NONE) return;
+      const avP=availablePriorities(wk,days,priorities);
+      if(!avP.includes(pk)) return;
+      const m=parseWK(wk);
+      for(let i=0;i<7;i++){
+        const d=addDays(m,i); const dk=dateKey(d);
+        const{status,bookings}=getDayInfo(dk,wk,i);
+        if(status===S.OPEN && bookings.length===0) datelist.push({d,i});
+      }
+    });
+    if(!datelist.length) return `${p.name}\nСвободных дат нет`;
+    // Group by month
+    const byMonth={};
+    datelist.forEach(({d,i})=>{
+      const mk=`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}`;
+      if(!byMonth[mk]) byMonth[mk]={label:`${MONTHS_NOM[d.getMonth()]} ${d.getFullYear()}`,dates:[]};
+      byMonth[mk].dates.push(`${d.getDate()} (${DAYS_SHORT[i]})`);
+    });
+    const lines=[p.name,"Свободные даты:"];
+    Object.values(byMonth).forEach(({label,dates})=>{
+      lines.push(label);
+      lines.push(dates.join(", "));
+    });
+    return lines.join("\n");
+  };
+
+  // Build booked dates text
+  const bookedText=(daysBack=null, futureOnly=false)=>{
+    const now=new Date(); now.setHours(0,0,0,0);
+    const cutoff=daysBack ? new Date(now.getTime()-daysBack*24*3600*1000) : null;
+    const lines=[];
+    const byMonth={};
+    sortedWKs.forEach(wk=>{
+      const m=parseWK(wk);
+      for(let i=0;i<7;i++){
+        const d=addDays(m,i); const dk=dateKey(d);
+        if(futureOnly){ if(d <= now) return; }
+        else {
+          if(cutoff && d < cutoff) return;
+          if(d > now) return; // only past/today
+        }
+        const bookings=days[dk]?.bookings||[];
+        if(!bookings.length) return;
+        const mk=`${d.getFullYear()}-${String(d.getMonth()).padStart(2,"0")}`;
+        if(!byMonth[mk]) byMonth[mk]={label:`${MONTHS_NOM[d.getMonth()]} ${d.getFullYear()}`,entries:[]};
+        bookings.forEach(b=>{
+          const pname=priorities[b.priority]?.name||"";
+          const type=BT_STYLE[b.type]?.label||"";
+          const paid=b.type===BT.COMMERCIAL?(b.paid?"  [Оплачено]":"  [Не оплачено]"):"";
+          const client=b.client?` — ${b.client}`:"";
+          byMonth[mk].entries.push(`${d.getDate()} (${DAYS_SHORT[i]})  ${pname?pname+", ":""}${type}${paid}${client}`);
+        });
+      }
+    });
+    Object.values(byMonth).forEach(({label,entries})=>{
+      lines.push(label);
+      entries.forEach(e=>lines.push("  "+e));
+      lines.push("");
+    });
+    return lines.length?(futureOnly?"Предстоящие задания":"Выполненные задания")+":\n\n"+lines.join("\n").trimEnd():(futureOnly?"Предстоящих заданий нет.":"Выполненных заданий за этот период нет.");
+  };
+
+  const clientText=()=>{
+    if(clientPriority) return clientTextForPriority(clientPriority);
+    // fallback: all priorities
+    const lines=[];
+    PRIORITY_KEYS.forEach(pk=>{
+      const txt=clientTextForPriority(pk); if(txt) lines.push(txt);
+    });
+    return lines.length?lines.join("\n\n"):"Свободных дат пока нет.";
+  };
+
+  const weekStats=wk=>{
+    const m=parseWK(wk); let open=0,comm=0,nonc=0,unpaid=0;
+    for(let i=0;i<7;i++){
+      const dk=dateKey(addDays(m,i));
+      const{status,bookings}=getDayInfo(dk,wk,i);
+      if(status===S.OPEN) open++;
+      bookings.forEach(b=>{
+        if(b.type===BT.COMMERCIAL){comm++;if(!b.paid)unpaid++;}
+        else nonc++;
+      });
+    }
+    return{open,comm,nonc,unpaid};
+  };
+
+  const renderWeek=(wk,readOnly=false)=>{
+    const w=weeks[wk]; const m=parseWK(wk);
+    const stats=weekStats(wk);
+    const hasR=w.reserve!==WR.NONE; const rs=hasR?WR_STYLE[w.reserve]:null;
+    const booked=stats.comm+stats.nonc>0;
+    const ago=weeksAgo(wk);
+    return(
+      <div key={wk} style={{marginBottom:8,borderRadius:10,overflow:"hidden",
+        border:`1px solid ${hasR?rs.border:booked?"#2a1800":stats.open>0?"#1a2e1a":"#1e1e1e"}`,
+        background:hasR?rs.bg:booked?"#110900":stats.open>0?"#0d130d":"#0f0f0f",
+        opacity:readOnly?0.45:1}}>
+
+        <div style={{display:"flex",alignItems:"center",padding:"8px 11px",
+          borderBottom:w.collapsed?"none":"1px solid #1a1a1a",gap:7,cursor:"pointer"}}
+          onClick={()=>toggleCollapse(wk)}>
+          <div style={{fontSize:11,color:"#e8e8e0"}}>{w.collapsed?"▶":"▼"}</div>
+          <div style={{flex:1}}>
+            <span style={{fontSize:13,fontWeight:700,color:"#f4f4f0"}}>{fmtShort(m)} – {fmtShort(addDays(m,6))}</span>
+            <span style={{marginLeft:7,fontSize:11,color:"#e8e8e0"}}>{m.toLocaleDateString("ru-RU",{month:"long"})} {m.getFullYear()}</span>
+            {readOnly&&<span style={{marginLeft:7,fontSize:11,color:"#ddd"}}>{ago<52?`${ago} нед. назад`:`${Math.round(ago/52)} г. назад`}</span>}
+          </div>
+          <div style={{display:"flex",gap:5,alignItems:"center"}}>
+            {stats.comm>0&&<Badge color="#ef4444">{stats.comm} ком{stats.unpaid>0&&<span style={{color:"#ef4444"}}> ·{stats.unpaid}€</span>}</Badge>}
+            {stats.nonc>0&&<Badge color="#60a5fa">{stats.nonc} нек</Badge>}
+            {stats.open>0&&!booked&&<Badge color="#4ade80">{stats.open} св</Badge>}
+            {hasR&&<span style={{fontSize:10,color:rs.labelColor}}>{rs.label}</span>}
+            {!booked&&!hasR&&stats.open===0&&<span style={{fontSize:11,color:"#e8e8e0"}}>○</span>}
+          </div>
+          <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
+            {!readOnly&&<button onClick={()=>setModal({type:"weekMenu",wk})} style={bSty("#ccc","#222")}>⋯</button>}
+            <button onClick={()=>removeWeek(wk)} style={bSty("#aaa","#1a1a1a")}>✕</button>
+          </div>
+        </div>
+
+        {w.collapsed&&w.reserveNote&&<div style={{padding:"4px 13px",fontSize:11,color:"#999",fontStyle:"italic",borderTop:"1px solid #1a1a1a"}}>{w.reserveNote}</div>}
+
+        {!w.collapsed&&(
+          <>
+            {!hasR&&!readOnly&&(
+              <div style={{padding:"6px 11px",borderBottom:"1px solid #1a1a1a",display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+                <span style={{fontSize:11,color:"#e8e8e0",letterSpacing:1,textTransform:"uppercase",marginRight:3}}>Дни:</span>
+                {DAYS_SHORT.map((d,i)=>{
+                  const a=w.availDays.includes(i);
+                  return <button key={i} onClick={()=>toggleAvailDay(wk,i)} style={{
+                    padding:"3px 8px",borderRadius:5,border:`1px solid ${a?"#4ade80":"#222"}`,
+                    background:a?"#0d1f14":"transparent",color:a?"#4ade80":"#ccc",
+                    fontSize:11,cursor:"pointer",fontFamily:"inherit",
+                  }}>{d}</button>;
+                })}
+              </div>
+            )}
+            {hasR&&w.reserveNote&&<div style={{padding:"4px 13px 0",fontSize:11,color:"#999",fontStyle:"italic"}}>{w.reserveNote}</div>}
+            <DayRow monday={m} wk={wk} getDayInfo={getDayInfo} todayKey={todayKey}
+              days={days} priorities={priorities}
+              onDayClick={onDayClick} onLongPress={onLongPress} readOnly={readOnly}/>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none",fontSize:`${Math.round(scale*13)}px`,maxWidth:scale>=1.5?"960px":scale>=1.2?"720px":"100%",margin:"0 auto"}}>
+
+      {/* HEADER */}
+      <div style={{borderBottom:"1px solid #1e1e1e",padding:"13px 14px 10px",position:"sticky",top:0,
+        background:"#0a0a0a",zIndex:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+        <div>
+          <div style={{fontSize:11,letterSpacing:2,color:"#ddd",textTransform:"uppercase",marginBottom:1}}>ЗАДАНИЯ</div>
+          <div style={{fontSize:14,fontWeight:700,letterSpacing:-0.5}}>{futureWKs.length} нед. вперёд · архив {pastWKs.length}</div>
+        </div>
+        <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
+          {[
+            ["schedule","📅","#4ade80","График"],
+            ["client","📊","#60a5fa","Отчёты"],
+            ["archive","🗂","#a78bfa","Архив"],
+            ["settings","⚙️","#e0e0d8","Настройки"],
+            ["finance","💰","#fbbf24","Финансы"],
+          ].map(([v,icon,c,tip])=>(
+            <button key={v} title={tip}
+              onClick={()=>setView(prev=>prev===v?"schedule":v)}
+              style={{
+                width:38,height:38,borderRadius:8,
+                border:`2px solid ${view===v?c:"#aaa"}`,
+                background:view===v?c:"#111",
+                color:view===v?"#0a0a0a":"#ccc",
+                fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+                transition:"all .15s",
+                boxShadow:view===v?`0 0 10px ${c}66`:"none",
+              }}>{icon}</button>
+          ))}
+
+          <button onClick={handleBackup} title="Резервная копия (JSON)"
+            style={{width:38,height:38,borderRadius:8,
+              border:`2px solid ${backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#2a2a3a"}`,
+              background:backupMsg==="saved"?"#0d2a0d":backupMsg==="error"?"#1a0d0d":"#111",
+              color:backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#a78bfa",
+              fontSize:backupMsg?14:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+            {backupMsg==="saved"?"✓":backupMsg==="error"?"✗":"💾"}
+          </button>
+          <button onClick={()=>importRef.current?.click()} title="Восстановить из файла"
+            style={{width:38,height:38,borderRadius:8,
+              border:`2px solid ${backupMsg==="restored"?"#4ade80":"#2a2a3a"}`,
+              background:backupMsg==="restored"?"#0d2a0d":"#111",
+              color:backupMsg==="restored"?"#4ade80":"#60a5fa",
+              fontSize:backupMsg==="restored"?14:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+            {backupMsg==="restored"?"✓":"📂"}
+          </button>
+          <input ref={importRef} type="file" accept=".json" onChange={handleRestore}
+            style={{display:"none"}}/>
+          <button onClick={handleICS} title="Экспорт в Google Calendar (.ics)"
+            style={{width:38,height:38,borderRadius:8,border:"2px solid #1a2a3a",background:"#111",color:"#4fc3f7",
+              fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
+            📆
+          </button>
+          <button onClick={()=>setAddOpen(true)} title="Добавить неделю"
+            style={{width:38,height:38,borderRadius:8,border:"2px solid #2a2a2a",background:"#111",color:"#e8e8e0",
+              fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>＋</button>
+        </div>
+      </div>
+
+      {/* REMINDERS */}
+      {showReminder&&(
+        <div style={{background:"#1a1500",borderBottom:"1px solid #3a3000",padding:"9px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+          <div style={{fontSize:12,color:"#facc15"}}>⏰ 2 месяца без резервной копии — рекомендуем сохранить CSV</div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={handleExport} style={{padding:"4px 10px",borderRadius:5,border:"1px solid #facc15",background:"#2a2000",color:"#facc15",fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>Сохранить</button>
+            <button onClick={()=>setShowReminder(false)} style={{padding:"4px 8px",borderRadius:5,border:"1px solid #333",background:"transparent",color:"#999",fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+          </div>
+        </div>
+      )}
+      {showCheckReminder&&(
+        <div style={{background:"#0e1a0e",borderBottom:"1px solid #1a3a1a",padding:"9px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+          <div style={{fontSize:12,color:"#4ade80"}}>📅 Прошло 2 недели — проверь свободные дни на новых неделях</div>
+          <button onClick={()=>{setLS(CHECK_KEY,new Date().toISOString());setShowCheckReminder(false);}} style={{padding:"4px 14px",borderRadius:5,border:"1px solid #4ade80",background:"#0d1f14",color:"#4ade80",fontSize:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Проверил ✓</button>
+        </div>
+      )}
+
+      {/* GCAL REMINDER */}
+      {showGcalReminder&&(
+        <div style={{background:"#0a1520",borderBottom:"1px solid #1a3a5a",padding:"9px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+          <div style={{fontSize:12,color:"#4fc3f7"}}>📆 Прошла неделя — синхронизируй данные с Google Календарём</div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>{handleICS();}} style={{padding:"4px 12px",borderRadius:5,border:"1px solid #4fc3f7",background:"#0d1f2a",color:"#4fc3f7",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+              Скачать .ics
+            </button>
+            <button onClick={()=>{setLS(GCAL_KEY,new Date().toISOString());setShowGcalReminder(false);}} style={{padding:"4px 10px",borderRadius:5,border:"1px solid #333",background:"transparent",color:"#888",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>
+              Уже сделал ✓
+            </button>
+            <button onClick={()=>{setLS(GCAL_KEY,new Date().toISOString());setShowGcalReminder(false);}} style={{padding:"4px 8px",borderRadius:5,border:"1px solid #222",background:"transparent",color:"#555",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* LEGEND */}
+      {view==="schedule"&&(
+        <div style={{padding:"7px 14px",borderBottom:"1px solid #111",display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+          {[["#ef4444","Коммерч."],[BT_STYLE.noncommercial.color,"Некоммерч."],["#4ade80","Свободен"],["#facc15","Скрыт"],["#a78bfa","Личн. бронь"]].map(([c,l])=>(
+            <div key={l} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#e8e8e0"}}>
+              <div style={{width:7,height:7,borderRadius:2,background:c}}/>{l}
+            </div>
+          ))}
+          <div style={{fontSize:11,color:"#e8e8e0",marginLeft:"auto"}}>Клик = детали · удержание = скрыть</div>
+        </div>
+      )}
+
+      {/* ── VIEWS ── */}
+      {view==="client"&&(
+        <ReportsView
+          priorities={priorities}
+          clientPriority={clientPriority}
+          setClientPriority={setClientPriority}
+          showBooked={showBooked}
+          setShowBooked={setShowBooked}
+          selPeriod={selPeriod}
+          setSelPeriod={setSelPeriod}
+          clientTextForPriority={clientTextForPriority}
+          bookedText={bookedText}
+          days={days}
+          priorities={priorities}
+          showAmounts={showAmounts}
+        />
+      )}
+
+      {view==="archive"&&(
+        <ArchiveView
+          pastWKs={pastWKs}
+          renderWeek={renderWeek}
+          weeksAgo={weeksAgo}
+          parseWK={parseWK}
+        />
+      )}
+
+      {view==="settings"&&(
+        <PrioritySettings priorities={priorities} onChange={setPriorities} onClose={()=>setView("schedule")}/>
+      )}
+
+      {view==="schedule"&&(
+        <ScheduleView
+          futureWKs={futureWKs}
+          renderWeek={renderWeek}
+        />
+      )}
+
+      {view==="finance"&&(
+        <FinanceView days={days} priorities={priorities} writtenOff={writtenOff} onWriteOff={setWrittenOff} showAmounts={showAmounts} setShowAmounts={setShowAmounts}/>
+      )}
+
+      {/* MODALS */}
+      {modal?.type==="dayDetail"&&(
+        <DayDetailModal dk={modal.dk} wk={modal.wk} dayIdx={modal.dayIdx||0} knownClients={knownClients}
+          days={days} weeks={weeks} priorities={priorities}
+          getDayInfo={getDayInfo}
+          onAddBooking={(dk,b,wk)=>addBooking(dk,b,wk)} onUpdateBooking={updateBooking} onRemoveBooking={removeBooking}
+          onClearDay={()=>{
+            const idx=modal.dayIdx||0;
+            // Remove all bookings and set day to HIDDEN, remove from availDays
+            setDays(p=>({...p,[modal.dk]:{status:S.HIDDEN,bookings:[]}}));
+            setWeeks(p=>({...p,[modal.wk]:{...p[modal.wk],availDays:(p[modal.wk]?.availDays||[]).filter(d=>d!==idx)}}));
+          }}
+          onToggleOpen={()=>{
+            const idx=modal.dayIdx||0;
+            const{status}=getDayInfo(modal.dk,modal.wk,idx);
+            const isCurrentlyOpen=status===S.OPEN||(status===S.CLOSED&&weeks[modal.wk]?.availDays?.includes(idx)&&!days[modal.dk]?.status);
+            if(isCurrentlyOpen){
+              // Hide: set HIDDEN in days AND remove from availDays
+              setDays(p=>({...p,[modal.dk]:{...(p[modal.dk]||{}),status:S.HIDDEN}}));
+              setWeeks(p=>({...p,[modal.wk]:{...p[modal.wk],availDays:(p[modal.wk]?.availDays||[]).filter(d=>d!==idx)}}));
+            } else {
+              // Open: set OPEN in days AND add to availDays
+              setDays(p=>({...p,[modal.dk]:{...(p[modal.dk]||{}),status:S.OPEN}}));
+              setWeeks(p=>{
+                const cur=p[modal.wk]?.availDays||[];
+                return{...p,[modal.wk]:{...p[modal.wk],availDays:[...new Set([...cur,idx])].sort()}};
+              });
+            }
+          }}
+          onClose={()=>setModal(null)}/>
+      )}
+      {modal?.type==="weekMenu"&&(
+        <WeekMenuModal wk={modal.wk} current={weeks[modal.wk]?.reserve} note={weeks[modal.wk]?.reserveNote}
+          onSet={(r,n)=>{setWeekReserve(modal.wk,r,n);setModal(null);}} onClose={()=>setModal(null)}/>
+      )}
+      {addOpen&&(
+        <AddWeekModal existingWKs={new Set(sortedWKs)} onAdd={m=>{
+          const wk=weekKey(m);
+          if(!weeks[wk]) setWeeks(p=>({...p,[wk]:{availDays:randomDaysForWeek(wk),reserve:WR.NONE,reserveNote:"",collapsed:false}}));
+          // don't close — user may want to add more
+        }} onClose={()=>setAddOpen(false)}/>
+      )}
+    </div>
+  );
+}
+
+// ─── PrioritySettings ─────────────────────────────────────────────────────────
+function PrioritySettings({priorities, onChange, onClose}){
+  const [local,setLocal] = useState(()=>JSON.parse(JSON.stringify(priorities)));
+  const [saved,setSaved] = useState(false);
+
+  const update=(pk,field,val)=>{
+    setLocal(p=>({...p,[pk]:{...p[pk],[field]:val}}));
+    setSaved(false);
+  };
+  const save=()=>{ onChange(local); setSaved(true); setTimeout(()=>{ setSaved(false); onClose(); },800); };
+
+  return(
+    <div style={{padding:"14px 14px"}}>
+      <div style={{fontSize:11,color:"#e8e8e0",letterSpacing:3,textTransform:"uppercase",marginBottom:16}}>
+        НАСТРОЙКИ ПРИОРИТЕТОВ
+      </div>
+      <div style={{fontSize:11,color:"#e8e8e0",marginBottom:16,lineHeight:1.6}}>
+        Задай название и максимальное количество заданий в неделю для каждого приоритета.<br/>
+        Пустое название — приоритет не используется.
+      </div>
+
+      {PRIORITY_KEYS.map(pk=>{
+        const p=local[pk];
+        return(
+          <div key={pk} style={{marginBottom:10,padding:"10px 12px",borderRadius:9,
+            border:`1px solid ${p.color}33`,background:`${p.color}08`,
+            display:"grid",gridTemplateColumns:"20px 1fr 90px 60px 80px",gap:10,alignItems:"center"}}>
+            {/* Color dot + key */}
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+              <div style={{width:9,height:9,borderRadius:"50%",background:p.color}}/>
+              <span style={{fontSize:11,color:"#e8e8e0",textTransform:"uppercase"}}>{pk}</span>
+            </div>
+            {/* Name */}
+            <input
+              value={p.name}
+              onChange={e=>update(pk,"name",e.target.value)}
+              placeholder={`Приоритет ${pk.toUpperCase()} (оставь пустым чтобы скрыть)`}
+              style={{...inp,marginBottom:0,fontSize:11,borderColor:`${p.color}44`}}
+            />
+            {/* Max per week */}
+            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+              <div style={{fontSize:9,color:"#ddd",letterSpacing:1,textTransform:"uppercase"}}>макс/нед</div>
+              <div style={{display:"flex",alignItems:"center",gap:5}}>
+                <button onClick={()=>update(pk,"maxPerWeek",Math.max(1,p.maxPerWeek-1))}
+                  style={{...bSty("#ccc","#bbb"),padding:"2px 7px",fontSize:13}}>−</button>
+                <span style={{fontSize:13,color:p.color,fontWeight:700,minWidth:14,textAlign:"center"}}>{p.maxPerWeek}</span>
+                <button onClick={()=>update(pk,"maxPerWeek",Math.min(7,p.maxPerWeek+1))}
+                  style={{...bSty("#ccc","#bbb"),padding:"2px 7px",fontSize:13}}>+</button>
+              </div>
+            </div>
+            {/* Color picker */}
+            <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
+              <div style={{fontSize:9,color:"#ddd",letterSpacing:1,textTransform:"uppercase"}}>цвет</div>
+              <input type="color" value={p.color} onChange={e=>update(pk,"color",e.target.value)}
+                style={{width:32,height:24,border:"none",background:"none",cursor:"pointer",padding:0,borderRadius:4}}/>
+            </div>
+            {/* Can be commercial toggle */}
+            <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
+              <div style={{fontSize:8,color:"#ddd",letterSpacing:1,textTransform:"uppercase",textAlign:"center"}}>коммерц.</div>
+              <div onClick={()=>update(pk,"canBeCommercial",!p.canBeCommercial)} style={{
+                width:34,height:19,borderRadius:10,cursor:"pointer",transition:"all .2s",
+                background:p.canBeCommercial?"#ef4444":"#333",position:"relative",flexShrink:0,
+              }}>
+                <div style={{position:"absolute",top:3,left:p.canBeCommercial?17:3,width:13,height:13,
+                  borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      <button onClick={save} style={{
+        marginTop:14,width:"100%",padding:"10px",borderRadius:8,
+        border:`1px solid ${saved?"#4ade80":"#bbb"}`,
+        background:saved?"#0d1f14":"#1a1a1a",
+        color:saved?"#4ade80":"#e0e0d8",
+        fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+        transition:"all .2s",
+      }}>{saved?"✓ Сохранено":"Сохранить"}</button>
+    </div>
+  );
+}
+
+// ─── PersonalReport ──────────────────────────────────────────────────────────
+function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
+  const [mode,setMode]=useState("upcoming"); // upcoming | past | free
+  const [upPeriod,setUpPeriod]=useState("month");
+  const [pastPeriod,setPastPeriod]=useState("month1");
+  const [customFrom,setCustomFrom]=useState("");
+  const [customTo,setCustomTo]=useState("");
+
+  const now=new Date(); now.setHours(23,59,59,999);
+  const today=new Date(); today.setHours(0,0,0,0);
+  const y=today.getFullYear(), m=today.getMonth();
+
+  const UP_PERIODS=[
+    {key:"month",   label:"Этот месяц",    from:new Date(y,m,1),          to:new Date(y,m+1,0,23,59,59)},
+    {key:"3months", label:"3 месяца",      from:today,                    to:new Date(y,m+3,0,23,59,59)},
+    {key:"halfyear",label:"Полгода",        from:today,                    to:new Date(y,m+6,0,23,59,59)},
+    {key:"all",     label:"Все",            from:today,                    to:new Date(y+5,0,1)},
+  ];
+  const PAST_PERIODS=[
+    {key:"month1",  label:"Месяц",         from:new Date(y,m-1,today.getDate()), to:now},
+    {key:"month2",  label:"2 месяца",      from:new Date(y,m-2,today.getDate()), to:now},
+    {key:"month3",  label:"3 месяца",      from:new Date(y,m-3,today.getDate()), to:now},
+    {key:"half",    label:"Полгода",        from:new Date(y,m-6,today.getDate()), to:now},
+    {key:"all",     label:"Всё время",      from:new Date(0),                    to:now},
+    {key:"custom",  label:"Выбрать даты",   from:null,                           to:null},
+  ];
+
+  const getRange=()=>{
+    if(mode==="upcoming") return UP_PERIODS.find(p=>p.key===upPeriod)||UP_PERIODS[0];
+    if(mode==="past"){
+      const pp=PAST_PERIODS.find(p=>p.key===pastPeriod)||PAST_PERIODS[0];
+      if(pastPeriod==="custom"){
+        return{from:customFrom?new Date(customFrom):new Date(0), to:customTo?(()=>{const d=new Date(customTo);d.setHours(23,59,59);return d;})():now};
+      }
+      return pp;
+    }
+    return null;
+  };
+
+  // Collect bookings in range
+  const getBookings=()=>{
+    const range=getRange(); if(!range) return [];
+    const {from,to}=range;
+    const result=[];
+    Object.entries(days).forEach(([dk,d])=>{
+      const date=parseLocalDate(dk);
+      if(date<from||date>to) return;
+      (d.bookings||[]).forEach(b=>{
+        result.push({...b, date, dk});
+      });
+    });
+    return result.sort((a,b)=>a.date-b.date);
+  };
+
+  const bookings=mode==="free"?[]:getBookings();
+
+  const fmt=(n)=>Number(n).toLocaleString("ru-RU")+" €";
+
+  const copyText=()=>{
+    if(mode==="free"){
+      const lines=[];
+      PRIORITY_KEYS.forEach(pk=>{ const t=clientTextForPriority(pk); if(t) lines.push(t); });
+      return lines.join("\n\n")||"Нет дат";
+    }
+    const lines=bookings.map(b=>{
+      const dateStr=b.date.toLocaleDateString("ru-RU",{day:"numeric",month:"long"});
+      const type=b.type==="commercial"?"Коммерческая":"Некоммерческая";
+      const client=b.client||"—";
+      const pname=priorities[b.priority]?.name||"";
+      const paid=b.type==="commercial"?(b.paid?"Оплачено":"Не оплачено"):"";
+      const amount=(showAmounts&&b.type==="commercial"&&b.amount)?fmt(b.amount):"";
+      const note=b.note||"";
+      return [dateStr, type, client, pname, paid, amount, note].filter(Boolean).join(" · ");
+    });
+    return lines.join("\n")||"Нет заданий за период";
+  };
+
+  const BtnGroup=({items,active,setActive})=>(
+    <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
+      {items.map(({key,label})=>(
+        <button key={key} onClick={()=>setActive(key)} style={{
+          padding:"5px 10px",borderRadius:6,fontSize:10,cursor:"pointer",fontFamily:"inherit",
+          border:`1px solid ${active===key?"#a78bfa":"#222"}`,
+          background:active===key?"#10091f":"#111",
+          color:active===key?"#a78bfa":"#aaa",fontWeight:active===key?700:400,
+        }}>{label}</button>
+      ))}
+    </div>
+  );
+
+  return(
+    <div>
+      {/* Mode tabs */}
+      <div style={{display:"flex",gap:5,marginBottom:14}}>
+        {[["upcoming","⏭ Запланированные"],["past","✅ Прошедшие"],["free","🟢 Свободные"]].map(([k,lbl])=>(
+          <button key={k} onClick={()=>setMode(k)} style={{
+            flex:1,padding:"7px 4px",borderRadius:7,fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+            border:`1px solid ${mode===k?"#a78bfa":"#222"}`,
+            background:mode===k?"#10091f":"#111",
+            color:mode===k?"#a78bfa":"#aaa",
+          }}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* Period selectors */}
+      {mode==="upcoming"&&<BtnGroup items={UP_PERIODS} active={upPeriod} setActive={setUpPeriod}/>}
+      {mode==="past"&&<BtnGroup items={PAST_PERIODS} active={pastPeriod} setActive={setPastPeriod}/>}
+      {mode==="past"&&pastPeriod==="custom"&&(
+        <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+          <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}
+            style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
+          <span style={{color:"#999"}}>—</span>
+          <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)}
+            style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
+        </div>
+      )}
+
+
+
+      {/* Free dates */}
+      {mode==="free"&&(()=>{
+        const lines=[];
+        PRIORITY_KEYS.forEach(pk=>{ const t=clientTextForPriority(pk); if(t) lines.push(t); });
+        const txt=lines.join("\n\n")||"Свободных дат нет.";
+        return(
+          <>
+            <div style={{background:"#111",border:"1px solid #4ade8033",borderRadius:10,padding:14,
+              fontSize:12,lineHeight:1.9,whiteSpace:"pre-line",color:"#eee",maxHeight:320,overflowY:"auto"}}>
+              {txt}
+            </div>
+            <button onClick={()=>navigator.clipboard?.writeText(txt)} style={{
+              marginTop:10,padding:"8px 16px",background:"#0d1f14",border:"1px solid #4ade80",
+              color:"#4ade80",borderRadius:6,fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+            }}>Скопировать</button>
+          </>
+        );
+      })()}
+
+      {/* Bookings table */}
+      {mode!=="free"&&(
+        <div>
+          {/* Summary counters */}
+          {bookings.length>0&&(()=>{
+            const commCount=bookings.filter(b=>b.type==="commercial").length;
+            const nonCCount=bookings.filter(b=>b.type!=="commercial").length;
+            return(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+                <div style={{background:"#1a0000",border:"1px solid #ef444444",borderRadius:9,padding:"10px 12px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"#ef4444",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}}>Коммерческих</div>
+                  <div style={{fontSize:26,fontWeight:700,color:"#ef4444"}}>{commCount}</div>
+                </div>
+                <div style={{background:"#0d1120",border:"1px solid #60a5fa44",borderRadius:9,padding:"10px 12px",textAlign:"center"}}>
+                  <div style={{fontSize:10,color:"#60a5fa",marginBottom:4,letterSpacing:1,textTransform:"uppercase"}}>Некоммерческих</div>
+                  <div style={{fontSize:26,fontWeight:700,color:"#60a5fa"}}>{nonCCount}</div>
+                </div>
+              </div>
+            );
+          })()}
+          {bookings.length===0?(
+            <div style={{fontSize:12,color:"#999",textAlign:"center",padding:"20px 0"}}>
+              Заданий за период нет
+            </div>
+          ):(
+            <>
+              {bookings.map((b,bi)=>{
+                const pname=priorities[b.priority]?.name||"";
+                const isComm=b.type==="commercial";
+                const pc=priorities[b.priority]?.color||"#ccc";
+                return(
+                  <div key={bi} style={{
+                    padding:"9px 12px",borderRadius:8,marginBottom:6,
+                    border:`1px solid ${pc}33`,background:`${pc}08`,
+                  }}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                      <span style={{fontSize:12,fontWeight:700,color:"#f0f0ec"}}>
+                        {b.date.toLocaleDateString("ru-RU",{day:"numeric",month:"long",weekday:"short"})}
+                      </span>
+                      <span style={{fontSize:10,color:isComm?"#ef4444":"#60a5fa",fontWeight:600}}>
+                        {isComm?"Коммерческая":"Некоммерческая"}
+                      </span>
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6,fontSize:11,color:"#e8e8e0"}}>
+                      {b.client&&<span>👤 {b.client}</span>}
+                      {pname&&<span style={{color:pc}}>◆ {pname}</span>}
+                      {isComm&&<span style={{color:b.paid?"#4ade80":"#ef4444"}}>{b.paid?"✓ Оплачено":"✗ Не оплачено"}</span>}
+                      {showAmounts&&isComm&&b.amount&&<span style={{color:"#fbbf24",fontWeight:700}}>{fmt(b.amount)}</span>}
+                    </div>
+                    {(b.timeStart||b.allDay)&&(
+                      <div style={{fontSize:10,color:"#ccc",marginTop:3}}>
+                        🕐 {b.allDay?"Весь день":b.timeStart+(b.timeEnd?" – "+b.timeEnd:"")}
+                      </div>
+                    )}
+                    {b.location&&<div style={{fontSize:10,color:"#ccc",marginTop:2}}>📍 {b.location}</div>}
+                    {b.note&&<div style={{fontSize:10,color:"#999",marginTop:3,fontStyle:"italic"}}>{b.note}</div>}
+                  </div>
+                );
+              })}
+              <button onClick={()=>navigator.clipboard?.writeText(copyText())} style={{
+                marginTop:8,padding:"8px 16px",background:"#10091f",border:"1px solid #a78bfa",
+                color:"#a78bfa",borderRadius:6,fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+              }}>Скопировать список</button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ReportsView ─────────────────────────────────────────────────────────────
+function ReportsView({priorities,clientPriority,setClientPriority,showBooked,setShowBooked,selPeriod,setSelPeriod,clientTextForPriority,bookedText,days,showAmounts}){
+  const [section,setSection]=useState("client"); // "client" | "personal"
+
+  const BOOKED_PERIODS=[
+    {label:"Предстоящие", days:null, future:true},
+    {label:"4 недели",    days:28},
+    {label:"Полгода",     days:182},
+    {label:"2 года",      days:730},
+  ];
+
+  const CopyBtn=({txt,color="#60a5fa"})=>(
+    <button onClick={()=>navigator.clipboard?.writeText(txt)} style={{
+      marginTop:10,padding:"8px 16px",background:`${color}15`,border:`1px solid ${color}`,
+      color,borderRadius:6,fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+    }}>Скопировать</button>
+  );
+
+  const TextBox=({txt,color="#bbb"})=>(
+    <div style={{background:"#111",border:`1px solid ${color}`,borderRadius:10,padding:14,
+      fontSize:12,lineHeight:1.9,whiteSpace:"pre-line",color:"#eee",
+      fontFamily:"'DM Mono','Courier New',monospace",maxHeight:300,overflowY:"auto"}}>
+      {txt}
+    </div>
+  );
+
+  return(
+    <div style={{padding:16}}>
+      {/* Header */}
+      <div style={{fontSize:14,fontWeight:700,color:"#f0f0ec",marginBottom:4}}>Отчёты / Прогнозы</div>
+
+      {/* Section tabs */}
+      <div style={{display:"flex",gap:6,marginBottom:18}}>
+        {[["client","👤 Для клиента","#60a5fa"],["personal","🔒 Личное","#a78bfa"]].map(([s,lbl,clr])=>(
+          <button key={s} onClick={()=>setSection(s)} style={{
+            flex:1,padding:"9px",borderRadius:8,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+            border:`2px solid ${section===s?clr:"#222"}`,
+            background:section===s?clr:"#111",
+            color:section===s?"#0a0a0a":clr,
+            transition:"all .15s",
+          }}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* ── FOR CLIENT ── */}
+      {section==="client"&&(
+        <div>
+          <div style={{fontSize:10,color:"#999",letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>
+            Свободные даты для отправки клиенту
+          </div>
+          {/* Priority picker */}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+            {PRIORITY_KEYS.filter(pk=>priorities[pk]?.name).map(pk=>{
+              const p=priorities[pk]; const sel=clientPriority===pk;
+              return(
+                <button key={pk} onClick={()=>setClientPriority(sel?null:pk)} style={{
+                  padding:"6px 12px",borderRadius:7,border:`1px solid ${sel?p.color:"#e8e8e0"}`,
+                  background:sel?`${p.color}20`:"#111",color:sel?p.color:"#e8e8e0",
+                  fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:sel?700:400,
+                  display:"flex",alignItems:"center",gap:5,
+                }}>
+                  <div style={{width:7,height:7,borderRadius:"50%",background:p.color,flexShrink:0}}/>
+                  {p.name}
+                </button>
+              );
+            })}
+            {PRIORITY_KEYS.filter(pk=>priorities[pk]?.name).length===0&&(
+              <div style={{fontSize:11,color:"#999"}}>Настрой приоритеты в ⚙️</div>
+            )}
+          </div>
+          {clientPriority&&(()=>{
+            const txt=clientTextForPriority(clientPriority);
+            const p=priorities[clientPriority];
+            return <>
+              <TextBox txt={txt} color={`${p.color}33`}/>
+              <CopyBtn txt={txt} color={p.color}/>
+            </>;
+          })()}
+        </div>
+      )}
+
+      {/* ── PERSONAL ── */}
+      {section==="personal"&&(
+        <PersonalReport days={days} priorities={priorities} clientTextForPriority={clientTextForPriority} showAmounts={showAmounts}/>
+      )}
+    </div>
+  );
+}
+
+// ─── ArchiveView ─────────────────────────────────────────────────────────────
+function ArchiveView({pastWKs, renderWeek, weeksAgo, parseWK}){
+  const [openSections,setOpenSections]=useState({});
+  const toggle=k=>setOpenSections(p=>({...p,[k]:!p[k]}));
+
+  const recentWKs=pastWKs.filter(wk=>weeksAgo(wk)<=4).slice().reverse();
+  const olderWKs=pastWKs.filter(wk=>weeksAgo(wk)>4);
+
+  // Group older by year
+  const byYear={};
+  olderWKs.forEach(wk=>{
+    const yr=parseWK(wk).getFullYear();
+    if(!byYear[yr]) byYear[yr]=[];
+    byYear[yr].push(wk);
+  });
+
+  return(
+    <div style={{padding:"11px 13px"}}>
+      <div style={{fontSize:11,color:"#e8e8e0",letterSpacing:2,textTransform:"uppercase",marginBottom:12}}>
+        Архив — {pastWKs.length} нед.
+      </div>
+
+      {/* Last 4 weeks — always expanded, always editable */}
+      {recentWKs.length>0&&(
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#4ade80",marginBottom:6,
+            display:"flex",alignItems:"center",gap:6}}>
+            <span style={{width:8,height:8,borderRadius:2,background:"#4ade80",display:"inline-block"}}/>
+            Последние 4 недели — можно редактировать
+          </div>
+          {recentWKs.map(wk=>renderWeek(wk,false))}
+        </div>
+      )}
+
+      {/* Older weeks grouped by year — all editable */}
+      {Object.keys(byYear).sort().reverse().map(yr=>{
+        const yrKey=`yr-${yr}`;
+        const isOpen=openSections[yrKey];
+        return(
+          <div key={yr} style={{marginBottom:6}}>
+            <div onClick={()=>toggle(yrKey)} style={{
+              display:"flex",alignItems:"center",gap:8,padding:"8px 10px",
+              cursor:"pointer",borderRadius:7,
+              border:"1px solid #1e1e1e",background:"#0f0f0f",
+            }}>
+              <span style={{fontSize:10,color:"#999"}}>{isOpen?"▼":"▶"}</span>
+              <span style={{fontSize:12,fontWeight:700,color:"#e8e8e0",flex:1}}>{yr}</span>
+              <span style={{fontSize:10,color:"#999"}}>{byYear[yr].length} нед.</span>
+            </div>
+            {isOpen&&(
+              <div style={{marginTop:4}}>
+                {byYear[yr].slice().reverse().map(wk=>renderWeek(wk,false))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {pastWKs.length===0&&(
+        <div style={{fontSize:12,color:"#999",textAlign:"center",paddingTop:40}}>
+          Прошедших недель пока нет.<br/>
+          Добавь через кнопку + → ◀ Назад
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ScheduleView ────────────────────────────────────────────────────────────
+function ScheduleView({futureWKs, renderWeek}){
+  return(
+    <div style={{padding:"10px 12px"}}>
+      {futureWKs.map(wk=>renderWeek(wk,false))}
+      {futureWKs.length===0&&(
+        <div style={{fontSize:12,color:"#999",textAlign:"center",paddingTop:40}}>
+          Нет недель. Нажми + чтобы добавить
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DayRow ───────────────────────────────────────────────────────────────────
+function DayRow({monday,wk,getDayInfo,todayKey,days,priorities,onDayClick,onLongPress,readOnly}){
+  const timers=useRef({});
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+      {Array.from({length:7},(_,i)=>{
+        const d=addDays(monday,i); const dk=dateKey(d);
+        const{status,bookings}=getDayInfo(dk,wk,i);
+        const isToday=dk===todayKey;
+        const booked=bookings.length>0;
+
+        let bg="#141414", textColor="#2e2e2e";
+        if(booked){
+          // Use color of first booking's priority
+          const firstPk=bookings[0]?.priority;
+          const pc=firstPk?priorities[firstPk]?.color:"#fb923c";
+          bg=`${pc}18`; textColor=pc||"#fb923c";
+        } else if(status===S.OPEN)    { bg="#0d1f14"; textColor="#4ade80"; }
+          else if(status===S.HIDDEN)  { bg="#1a1800"; textColor="#facc15"; }
+          else if(status===S.PERSONAL){ bg="#100d1f"; textColor="#a78bfa"; }
+
+        const start=()=>{ if(readOnly)return; timers.current[dk]=setTimeout(()=>{onLongPress(dk,wk,i);timers.current[dk]=null;},480); };
+        const end=()=>{ if(readOnly)return; if(timers.current[dk]){clearTimeout(timers.current[dk]);timers.current[dk]=null;onDayClick(dk,wk,i);} };
+
+        // Bottom stripe: mixed = left half orange, right half blue stripes; pure = solid color
+        // Top stripe: red only if unpaid commercial exists
+        let bottomMixed=false;
+        let stripeColor=null;
+        let topStripe=false;
+        if(booked){
+          const hasComm=bookings.some(b=>b.type===BT.COMMERCIAL);
+          const hasNonC=bookings.some(b=>b.type===BT.NONCOMMERCIAL);
+          const hasUnpaid=bookings.some(b=>b.type===BT.COMMERCIAL&&!b.paid);
+          if(hasComm&&hasNonC){ bottomMixed=true; stripeColor="#ef4444"; }
+          else if(hasComm)     stripeColor="#ef4444";
+          else                 stripeColor="#60a5fa";
+          if(hasUnpaid) topStripe=true;
+        }
+
+        // Priority center square — highest priority among bookings (a > b > c ...)
+        let centerColor=null;
+        if(booked){
+          const pKeys=["a","b","c","d","e","f","g","h","i","j"];
+          for(const pk of pKeys){
+            if(bookings.some(b=>b.priority===pk)){
+              centerColor=priorities[pk]?.color||null;
+              break;
+            }
+          }
+        }
+
+        // Side white lines: 2 bookings → 2 lines, 3 → 3 lines (left edge)
+        const lineCount=bookings.length>=2?bookings.length:0;
+
+        // Date text always white on booked days for readability
+        const dateTextColor = booked ? "#ffffff" : textColor;
+
+        return(
+          <div key={i} onMouseDown={start} onMouseUp={end} onTouchStart={start} onTouchEnd={end}
+            style={{cursor:readOnly?"default":"pointer",
+              borderRight:i<6?"1px solid #1a1a1a":"none",
+              background: booked&&centerColor ? centerColor : bg,
+              position:"relative",minHeight:52,
+              display:"flex",flexDirection:"column",justifyContent:"flex-start",
+              paddingTop:6,overflow:"hidden",
+            }}>
+
+            {/* LAYER 1 — bottom: type stripe (commercial/noncommercial) z=1 */}
+            {booked&&stripeColor&&!bottomMixed&&(
+              <div style={{position:"absolute",bottom:0,left:0,right:0,height:"25%",background:stripeColor,opacity:0.9,zIndex:1,borderTop:"1.5px solid rgba(255,255,255,0.5)"}}/>
+            )}
+            {booked&&bottomMixed&&(
+              <>
+                <div style={{position:"absolute",bottom:0,left:0,width:"50%",height:"25%",background:"#ef4444",opacity:0.9,zIndex:1,borderTop:"1.5px solid rgba(255,255,255,0.5)",borderRight:"1px solid rgba(255,255,255,0.3)"}}/>
+                <div style={{position:"absolute",bottom:0,left:"50%",right:0,height:"25%",opacity:0.9,zIndex:1,borderTop:"1.5px solid rgba(255,255,255,0.5)",
+                  background:"repeating-linear-gradient(45deg,#60a5fa 0px,#60a5fa 3px,#1a1a2a 3px,#1a1a2a 6px)"}}/>
+              </>
+            )}
+
+            {/* LAYER 2 — top: unpaid red stripe z=2 */}
+            {topStripe&&<div style={{position:"absolute",top:0,left:0,right:0,height:"25%",background:"#ef4444",opacity:0.9,zIndex:2}}/>}
+
+            {/* LAYER 3 — day name z=3 */}
+            <div style={{fontSize:8,color: booked?"#ffffff":"#aaa",letterSpacing:1,textTransform:"uppercase",
+              textAlign:"center",marginBottom:2,position:"relative",zIndex:3,
+              textShadow: booked?"0 1px 3px rgba(0,0,0,0.8)":"none"}}>{DAYS_SHORT[i]}</div>
+
+            {/* LAYER 3 — date number, always readable z=3 */}
+            <div style={{fontSize:13,fontWeight:700,color:dateTextColor,
+              textAlign:"center",flex:1,position:"relative",zIndex:3,
+              textShadow: booked?"0 1px 3px rgba(0,0,0,0.8)":"none",
+            }}>{d.getDate()}</div>
+
+            {/* Today dot z=4 */}
+            {isToday&&<div style={{position:"absolute",top:3,right:4,width:4,height:4,
+              borderRadius:"50%",background:"#fff",zIndex:4}}/>}
+
+            {/* LAYER 5 — side lines: 2 or 3 bookings, full height, high contrast z=5 */}
+            {lineCount>=2&&Array.from({length:lineCount},(_,li)=>{
+              const gap=100/(lineCount+1);
+              return <div key={li} style={{
+                position:"absolute",left:0,width:3,
+                top:`${gap*(li+1) - 8}%`,height:"16%",
+                background:"#ffffff",
+                borderRadius:1,zIndex:5,
+                boxShadow:"0 0 3px rgba(0,0,0,0.6)",
+              }}/>;
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── DayDetailModal ───────────────────────────────────────────────────────────
+function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayInfo,onAddBooking,onUpdateBooking,onRemoveBooking,onClearDay,onToggleOpen,onClose}){
+  const{status,bookings}=getDayInfo(dk,wk,dayIdx);
+  const[addForm,setAddForm]=useState(null);
+  const[editId,setEditId]=useState(null);
+  const[editForm,setEditForm]=useState({});
+  const date=parseLocalDate(dk);
+  const w=weeks[wk];
+  const isOpen=status===S.OPEN||(status===S.CLOSED&&w?.availDays?.includes(dayIdx)&&!days[dk]?.status);
+  const avPriorities=availablePriorities(wk,days,priorities);
+  const activePriorities=PRIORITY_KEYS.filter(pk=>priorities[pk]?.name);
+
+  const startAdd=()=>setAddForm({priority:avPriorities[0]||PRIORITY_KEYS[0],type:BT.COMMERCIAL,client:"",paid:false,amount:"",note:"",allDay:false,timeStart:"",timeEnd:"",location:"",reminders:[]});
+  const confirmAdd=()=>{
+    if(!addForm) return;
+    onAddBooking(dk,{id:Date.now().toString(),...addForm,client:addForm.client.trim(),note:addForm.note.trim()},wk);
+    setAddForm(null);
+  };
+  const startEdit=(b)=>{ setEditId(b.id); setEditForm({...b}); };
+  const saveEdit=()=>{
+    const{id,...rest}=editForm;
+    Object.entries(rest).forEach(([k,v])=>onUpdateBooking(dk,editId,{[k]:v}));
+    setEditId(null);
+  };
+
+  return(
+    <Overlay>
+      <MB style={{maxHeight:"92vh",overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+          <div>
+            <ML>День</ML>
+            <div style={{fontSize:14,fontWeight:700,lineHeight:1.3}}>{fmtFull(date)}</div>
+          </div>
+          <button onClick={onClose} style={bSty("#999","#222")}>✕</button>
+        </div>
+
+        {bookings.length>0&&(
+          <div style={{marginBottom:12}}>
+            <ML>Задания ({bookings.length}/3)</ML>
+            {bookings.map(b=>
+              editId===b.id
+                ? <BookingEditCard key={b.id} b={b} ef={editForm} setEf={setEditForm}
+                    priorities={priorities} activePriorities={activePriorities}
+                    knownClients={knownClients}
+                    onSave={saveEdit} onCancel={()=>setEditId(null)}/>
+                : <BookingViewCard key={b.id} b={b} priorities={priorities}
+                    onEdit={()=>startEdit(b)} onDelete={()=>onRemoveBooking(dk,b.id)}/>
+            )}
+          </div>
+        )}
+
+        {!editId&&(addForm?(
+          <BookingAddForm
+            addForm={addForm} setAddForm={setAddForm}
+            activePriorities={activePriorities} avPriorities={avPriorities}
+            priorities={priorities} knownClients={knownClients}
+            onConfirm={confirmAdd} onCancel={()=>setAddForm(null)}/>
+        ):(
+          bookings.length<3&&(
+            <button onClick={startAdd} style={{width:"100%",padding:"9px",borderRadius:7,border:"1px dashed #333",
+              background:"transparent",color:"#ccc",fontSize:12,cursor:"pointer",fontFamily:"inherit",marginBottom:12}}>
+              + Добавить задание {bookings.length>0?`(${bookings.length}/3)`:""}
+            </button>
+          )
+        ))}
+
+        {bookings.length===0&&!addForm&&(
+          <Row><Btn onClick={()=>{onToggleOpen();onClose();}} c={isOpen?"#facc15":"#4ade80"} b={isOpen?"#facc15":"#4ade80"} bg="transparent">
+            {isOpen?"Скрыть день":"Открыть день"}
+          </Btn></Row>
+        )}
+        {bookings.length>0&&!editId&&!addForm&&(
+          <Row>
+            <Btn onClick={onClose} c="#999" b="#222" bg="transparent">Закрыть</Btn>
+            <Btn onClick={()=>{onClearDay();onClose();}} c="#ef4444" b="#ef4444" bg="#1a0a0a" bold>Очистить день</Btn>
+          </Row>
+        )}
+      </MB>
+    </Overlay>
+  );
+}
+
+function BookingViewCard({b, priorities, onEdit, onDelete}){
+  const p=priorities[b.priority]; const pc=p?.color||"#ccc";
+  const bs=BT_STYLE[b.type]; const isComm=b.type===BT.COMMERCIAL;
+  return(
+    <div style={{border:`1px solid ${pc}55`,borderRadius:9,padding:"11px 13px",marginBottom:8,background:`${pc}08`}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+          <div style={{width:9,height:9,borderRadius:"50%",background:pc,flexShrink:0}}/>
+          <span style={{fontSize:12,color:pc,fontWeight:700}}>{p?.name||b.priority}</span>
+          <span style={{fontSize:9,color:bs.color,border:`1px solid ${bs.color}44`,borderRadius:3,padding:"1px 6px"}}>{bs.label}</span>
+          {isComm&&<span style={{fontSize:9,fontWeight:700,color:b.paid?"#4ade80":"#ef4444",border:`1px solid ${b.paid?"#4ade8044":"#ef444444"}`,borderRadius:3,padding:"1px 6px"}}>
+            {b.paid?"✓ Оплачено":"✗ Не оплачено"}
+          </span>}
+        </div>
+        <button onClick={onEdit} style={{...bSty("#60a5fa","#60a5fa44"),fontWeight:700}}>Изменить</button>
+      </div>
+      {b.client&&<div style={{fontSize:12,color:"#e8e8e0",marginBottom:4}}>👤 {b.client}</div>}
+      {isComm&&b.amount&&<div style={{fontSize:13,color:"#fbbf24",fontWeight:700,marginBottom:4}}>💶 {parseFloat(b.amount).toLocaleString("ru-RU")} €</div>}
+      {(b.timeStart||b.allDay)&&<div style={{fontSize:11,color:"#ccc",marginBottom:3}}>🕐 {b.allDay?"Весь день":b.timeStart+(b.timeEnd?" – "+b.timeEnd:"")}</div>}
+      {b.location&&<div style={{fontSize:11,color:"#ccc",marginBottom:3}}>📍 {b.location}</div>}
+      {b.note&&<div style={{fontSize:11,color:"#aaa",fontStyle:"italic",marginTop:4}}>{b.note}</div>}
+      {(b.reminders||[]).length>0&&(
+        <div style={{fontSize:10,color:"#fbbf24",marginTop:4}}>
+          🔔 {(b.reminders||[]).map(r=>r===360?"6 часов":r===1440?"1 сутки":"5 дней").join(", ")}
+        </div>
+      )}
+      <button onClick={onDelete} style={{...bSty("#ef4444","#ef444433"),marginTop:8,fontSize:9}}>удалить</button>
+    </div>
+  );
+}
+
+function BookingEditCard({b, ef, setEf, priorities, activePriorities, knownClients, onSave, onCancel}){
+  const upEf=(k,v)=>setEf(p=>({...p,[k]:v}));
+  const p=priorities[ef.priority]; const pc=p?.color||"#ccc";
+  return(
+    <div style={{border:`2px solid ${pc}`,borderRadius:9,padding:"11px 13px",marginBottom:8,background:`${pc}10`}}>
+      <div style={{fontSize:10,color:pc,fontWeight:700,letterSpacing:1,textTransform:"uppercase",marginBottom:10}}>✏ Редактирование</div>
+      <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+        {activePriorities.map(pk=>{
+          const pp=priorities[pk]; const isSel=ef.priority===pk;
+          return <button key={pk} onClick={()=>upEf("priority",pk)} style={{
+            padding:"2px 8px",borderRadius:4,border:`1px solid ${isSel?pp.color:"#333"}`,
+            background:isSel?`${pp.color}20`:"transparent",color:isSel?pp.color:"#aaa",
+            fontSize:9,cursor:"pointer",fontFamily:"inherit",
+          }}>{pp.name}</button>;
+        })}
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        {[BT.COMMERCIAL,BT.NONCOMMERCIAL].filter(t=>t!==BT.COMMERCIAL||priorities[ef.priority]?.canBeCommercial!==false).map(t=>{
+          const ts=BT_STYLE[t];
+          return <button key={t} onClick={()=>upEf("type",t)} style={{
+            flex:1,padding:"5px",borderRadius:6,border:`1px solid ${ef.type===t?ts.color:"#222"}`,
+            background:ef.type===t?ts.bg:"transparent",color:ef.type===t?ts.color:"#999",
+            fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:ef.type===t?700:400,
+          }}>{ts.label}</button>;
+        })}
+      </div>
+      <ClientInput value={ef.client||""} onChange={v=>upEf("client",v)}
+        suggestions={knownClients} placeholder="Клиент" style={{...inp,fontSize:12}}/>
+      {ef.type===BT.COMMERCIAL&&(
+        <input value={ef.amount||""} onChange={e=>upEf("amount",e.target.value)}
+          placeholder="Стоимость (€)" type="number" min="0" style={{...inp,fontSize:12}}/>
+      )}
+      {ef.type===BT.COMMERCIAL&&(
+        <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:10,color:"#ccc"}}>Оплата:</div>
+          {[["Оплачено",true,"#4ade80"],["Не оплачено",false,"#ef4444"]].map(([lbl,val,clr])=>(
+            <button key={lbl} onClick={()=>upEf("paid",val)} style={{
+              padding:"4px 10px",borderRadius:5,fontSize:10,cursor:"pointer",fontFamily:"inherit",
+              border:`1px solid ${ef.paid===val?clr:"#333"}`,
+              background:ef.paid===val?`${clr}18`:"transparent",color:ef.paid===val?clr:"#888",
+              fontWeight:ef.paid===val?700:400,
+            }}>{lbl}</button>
+          ))}
+        </div>
+      )}
+      <input value={ef.note||""} onChange={e=>upEf("note",e.target.value)}
+        placeholder="Заметка" style={{...inp,fontSize:11,color:"#e8e8e0"}}/>
+      <input value={ef.location||""} onChange={e=>upEf("location",e.target.value)}
+        placeholder="📍 Место" style={{...inp,fontSize:11,color:"#e8e8e0"}}/>
+      {/* Reminders */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:9,color:"#aaa",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>🔔 Напоминания</div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {[{label:"6 часов",val:360},{label:"1 сутки",val:1440},{label:"5 дней",val:7200}].map(({label,val})=>{
+            const active=(ef.reminders||[]).includes(val);
+            return <button key={val} onClick={()=>upEf("reminders",active?(ef.reminders||[]).filter(r=>r!==val):[...(ef.reminders||[]),val])} style={{
+              padding:"4px 11px",borderRadius:6,fontSize:10,cursor:"pointer",fontFamily:"inherit",
+              border:`1px solid ${active?"#fbbf24":"#333"}`,
+              background:active?"#1a1500":"transparent",
+              color:active?"#fbbf24":"#777",fontWeight:active?700:400,
+            }}>🔔 {label}</button>;
+          })}
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8,cursor:"pointer"}}
+        onClick={()=>upEf("allDay",!ef.allDay)}>
+        <div style={{width:34,height:19,borderRadius:10,transition:"all .2s",
+          background:ef.allDay?"#4ade80":"#333",position:"relative",flexShrink:0}}>
+          <div style={{position:"absolute",top:3,left:ef.allDay?17:3,width:13,height:13,
+            borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+        </div>
+        <span style={{fontSize:11,color:ef.allDay?"#4ade80":"#888"}}>Весь день</span>
+      </div>
+      {!ef.allDay&&(
+        <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,color:"#888",marginBottom:3}}>Начало</div>
+            <input type="time" value={ef.timeStart||""} onChange={e=>upEf("timeStart",e.target.value)}
+              style={{...inp,marginBottom:0,fontSize:12,colorScheme:"dark"}}/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,color:"#888",marginBottom:3}}>Конец</div>
+            <input type="time" value={ef.timeEnd||""} onChange={e=>upEf("timeEnd",e.target.value)}
+              style={{...inp,marginBottom:0,fontSize:12,colorScheme:"dark"}}/>
+          </div>
+        </div>
+      )}
+      <Row>
+        <Btn onClick={onCancel} c="#888" b="#333" bg="transparent">Отмена</Btn>
+        <Btn onClick={onSave} c="#4ade80" b="#4ade80" bg="#0d1f14" bold>Сохранить</Btn>
+      </Row>
+    </div>
+  );
+}
+
+function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, priorities, knownClients, onConfirm, onCancel}){
+  return(
+    <div style={{border:"1px solid #2a2a2a",borderRadius:9,padding:"10px 12px",marginBottom:12,background:"#111"}}>
+      <ML>Новое задание</ML>
+      <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+        {activePriorities.map(pk=>{
+          const pp=priorities[pk]; const isSel=addForm.priority===pk; const hasCap=avPriorities.includes(pk);
+          return <button key={pk} onClick={()=>setAddForm(f=>({...f,priority:pk}))} style={{
+            padding:"3px 9px",borderRadius:5,border:`1px solid ${isSel?pp.color:hasCap?"#bbb":"#3a1a1a"}`,
+            background:isSel?`${pp.color}20`:"transparent",color:isSel?pp.color:hasCap?"#aaa":"#553333",
+            fontSize:10,cursor:"pointer",fontFamily:"inherit",
+          }}>{pp.name}{!hasCap&&<span style={{fontSize:7,color:"#f87171",marginLeft:3}}>лимит</span>}</button>;
+        })}
+      </div>
+      {!avPriorities.includes(addForm.priority)&&(
+        <div style={{fontSize:9,color:"#f87171",marginBottom:8}}>⚠ Лимит достигнут — для клиентов недоступно</div>
+      )}
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        {[BT.COMMERCIAL,BT.NONCOMMERCIAL].filter(t=>t!==BT.COMMERCIAL||priorities[addForm.priority]?.canBeCommercial!==false).map(t=>{
+          const ts=BT_STYLE[t];
+          return <button key={t} onClick={()=>setAddForm(f=>({...f,type:t}))} style={{
+            flex:1,padding:"6px",borderRadius:6,border:`1px solid ${addForm.type===t?ts.color:"#222"}`,
+            background:addForm.type===t?ts.bg:"transparent",color:addForm.type===t?ts.color:"#999",
+            fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:addForm.type===t?700:400,
+          }}>{ts.label}</button>;
+        })}
+      </div>
+      <ClientInput value={addForm.client} onChange={v=>setAddForm(f=>({...f,client:v}))}
+        suggestions={knownClients} placeholder="Имя клиента" style={{...inp,fontSize:12}}/>
+      {addForm.type===BT.COMMERCIAL&&(
+        <input value={addForm.amount||""} onChange={e=>setAddForm(f=>({...f,amount:e.target.value}))}
+          placeholder="Стоимость (€)" type="number" min="0" style={{...inp,fontSize:12}}/>
+      )}
+      {addForm.type===BT.COMMERCIAL&&(
+        <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:10,color:"#ccc"}}>Оплата:</div>
+          {[["Оплачено",true,"#4ade80"],["Не оплачено",false,"#ef4444"]].map(([lbl,val,clr])=>(
+            <button key={lbl} onClick={()=>setAddForm(f=>({...f,paid:val}))} style={{
+              padding:"4px 10px",borderRadius:5,border:`1px solid ${addForm.paid===val?clr:"#333"}`,
+              background:addForm.paid===val?`${clr}18`:"transparent",color:addForm.paid===val?clr:"#888",
+              fontSize:10,cursor:"pointer",fontFamily:"inherit",
+            }}>{lbl}</button>
+          ))}
+        </div>
+      )}
+      <input value={addForm.note} onChange={e=>setAddForm(f=>({...f,note:e.target.value}))}
+        placeholder="Заметка" style={{...inp,fontSize:11,color:"#e8e8e0"}}/>
+      <input value={addForm.location||""} onChange={e=>setAddForm(f=>({...f,location:e.target.value}))}
+        placeholder="📍 Место" style={{...inp,fontSize:11,color:"#e8e8e0"}}/>
+      {/* Reminders */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:9,color:"#aaa",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>🔔 Напоминания</div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {[{label:"6 часов",val:360},{label:"1 сутки",val:1440},{label:"5 дней",val:7200}].map(({label,val})=>{
+            const active=(addForm.reminders||[]).includes(val);
+            return <button key={val} onClick={()=>setAddForm(f=>({...f,reminders:active?(f.reminders||[]).filter(r=>r!==val):[...(f.reminders||[]),val]}))} style={{
+              padding:"4px 11px",borderRadius:6,fontSize:10,cursor:"pointer",fontFamily:"inherit",
+              border:`1px solid ${active?"#fbbf24":"#333"}`,
+              background:active?"#1a1500":"transparent",
+              color:active?"#fbbf24":"#777",fontWeight:active?700:400,
+            }}>🔔 {label}</button>;
+          })}
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+        <div onClick={()=>setAddForm(f=>({...f,allDay:!f.allDay,timeStart:"",timeEnd:""}))}
+          style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer"}}>
+          <div style={{width:34,height:19,borderRadius:10,transition:"all .2s",
+            background:addForm.allDay?"#4ade80":"#333",position:"relative",flexShrink:0}}>
+            <div style={{position:"absolute",top:3,left:addForm.allDay?17:3,width:13,height:13,
+              borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+          </div>
+          <span style={{fontSize:11,color:addForm.allDay?"#4ade80":"#888"}}>Весь день</span>
+        </div>
+      </div>
+      {!addForm.allDay&&(
+        <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,color:"#888",marginBottom:3}}>Начало</div>
+            <input type="time" value={addForm.timeStart||""} onChange={e=>setAddForm(f=>({...f,timeStart:e.target.value}))}
+              style={{...inp,marginBottom:0,fontSize:12,colorScheme:"dark"}}/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:9,color:"#888",marginBottom:3}}>Конец</div>
+            <input type="time" value={addForm.timeEnd||""} onChange={e=>setAddForm(f=>({...f,timeEnd:e.target.value}))}
+              style={{...inp,marginBottom:0,fontSize:12,colorScheme:"dark"}}/>
+          </div>
+        </div>
+      )}
+      <Row>
+        <Btn onClick={onCancel} c="#ccc" b="#222" bg="transparent">Отмена</Btn>
+        <Btn onClick={onConfirm} c="#e0e0d8" b="#bbb" bg="#1a1a1a" bold>Добавить</Btn>
+      </Row>
+    </div>
+  );
+}
+
+// ─── WeekMenuModal ────────────────────────────────────────────────────────────
+function WeekMenuModal({wk,current,note,onSet,onClose}){
+  const[sel,setSel]=useState(current||WR.NONE);
+  const[txt,setTxt]=useState(note||"");
+  const m=parseWK(wk);
+  return <Overlay><MB>
+    <ML>Статус недели</ML>
+    <div style={{fontSize:12,fontWeight:600,marginBottom:12}}>{fmtShort(m)} – {fmtShort(addDays(m,6))} {m.getFullYear()}</div>
+    {[{v:WR.NONE,l:"Обычная неделя",s:"Управление днями вручную",c:"#4ade80"},
+      {v:WR.PERSONAL,l:"🔒 Личная бронь",s:"Отпуск, проект, личные дела",c:"#a78bfa"},
+      {v:WR.HYPE,l:"✦ Резерв (ажиотаж)",s:"Закрыта внешне, реально свободна",c:"#facc15"}].map(o=>(
+      <div key={o.v} onClick={()=>setSel(o.v)} style={{padding:"8px 11px",borderRadius:8,marginBottom:6,cursor:"pointer",
+        border:`1px solid ${sel===o.v?o.c:"#1e1e1e"}`,background:sel===o.v?`${o.c}12`:"#111"}}>
+        <div style={{fontSize:11,color:sel===o.v?o.c:"#ccc",fontWeight:600}}>{o.l}</div>
+        <div style={{fontSize:11,color:"#e8e8e0",marginTop:1}}>{o.s}</div>
+      </div>
+    ))}
+    {sel!==WR.NONE&&<input value={txt} onChange={e=>setTxt(e.target.value)}
+      placeholder={sel===WR.PERSONAL?"Пояснение (отпуск, проект…)":"Заметка для себя"} style={{...inp,marginTop:4,marginBottom:10}}/>}
+    <Row style={{marginTop:sel===WR.NONE?10:0}}>
+      <Btn onClick={onClose} c="#ccc" b="#222" bg="transparent">Отмена</Btn>
+      <Btn onClick={()=>onSet(sel,txt.trim())} c="#e0e0d8" b="#bbb" bg="#1a1a1a" bold>Сохранить</Btn>
+    </Row>
+  </MB></Overlay>;
+}
+
+// ─── FinanceView ─────────────────────────────────────────────────────────────
+function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, setShowAmounts}){
+  const [finTab,setFinTab]=useState("overview");
+  const [periodKey,setPeriodKey]=useState("cur_month");
+  const [customFrom,setCustomFrom]=useState("");
+  const [customTo,setCustomTo]=useState("");
+
+  const now=new Date(); now.setHours(23,59,59,999);
+  const today=new Date(); today.setHours(0,0,0,0);
+
+  const getRange=()=>{
+    const y=today.getFullYear(), m=today.getMonth();
+    if(periodKey==="cur_month") return [new Date(y,m,1), now];
+    if(periodKey==="prev_month"){ const pm=m===0?11:m-1,py=m===0?y-1:y; return [new Date(py,pm,1),new Date(y,m,0,23,59,59,999)]; }
+    if(periodKey==="quarter") return [new Date(y,Math.floor(m/3)*3,1), now];
+    if(periodKey==="year") return [new Date(y,0,1), now];
+    if(periodKey==="custom"){
+      const f=customFrom?new Date(customFrom):new Date(0);
+      const t=customTo?new Date(customTo):now; t.setHours(23,59,59,999); return [f,t];
+    }
+    return [new Date(0),now];
+  };
+
+  const PERIODS=[
+    {key:"cur_month",label:"Этот месяц"},{key:"prev_month",label:"Прошлый"},
+    {key:"quarter",label:"Квартал"},{key:"year",label:"Этот год"},
+    {key:"custom",label:"Даты"},{key:"all",label:"Всё время"},
+  ];
+
+  const allBookings=[];
+  Object.entries(days).forEach(([dk,d])=>{
+    (d.bookings||[]).forEach(b=>{
+      if(b.type!=="commercial") return;
+      allBookings.push({...b,dk,date:parseLocalDate(dk)});
+    });
+  });
+
+  const [from,to]=getRange();
+  const periodBookings=allBookings.filter(b=>b.date>=from&&b.date<=to);
+  const periodPaid=periodBookings.filter(b=>b.paid&&!writtenOff[b.id]).reduce((s,b)=>s+parseFloat(b.amount||0),0);
+  const periodDebt=periodBookings.filter(b=>!b.paid&&!writtenOff[b.id]).reduce((s,b)=>s+parseFloat(b.amount||0),0);
+  const overdueBookings=allBookings.filter(b=>b.date<today&&!b.paid&&!writtenOff[b.id]).sort((a,b2)=>a.date-b2.date);
+  const overdueTotal=overdueBookings.reduce((s,b)=>s+parseFloat(b.amount||0),0);
+  const upcomingBookings=allBookings.filter(b=>b.date>=today&&!b.paid&&!writtenOff[b.id]).sort((a,b2)=>a.date-b2.date);
+  const upcomingTotal=upcomingBookings.reduce((s,b)=>s+parseFloat(b.amount||0),0);
+
+  const fmt=(n)=>Number(n).toLocaleString("ru-RU")+" €";
+
+  const BRow=({b,writeOffBtn=false})=>{
+    const isWO=writtenOff[b.id];
+    const pname=priorities[b.priority]?.name||"";
+    const overdue=b.date<today&&!b.paid;
+    return(
+      <div style={{padding:"9px 12px",borderRadius:8,marginBottom:6,
+        border:`1px solid ${isWO?"#222":overdue?"#ef444444":"#1a2a1a"}`,
+        background:isWO?"#0a0a0a":overdue?"#130808":"#0a130a",opacity:isWO?0.4:1}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,color:"#e8e8e0",fontWeight:600,marginBottom:2}}>
+              {b.client||"Клиент не указан"}
+              {b.amount&&showAmounts&&<span style={{color:overdue?"#ef4444":"#fbbf24",marginLeft:8,fontWeight:700}}>{parseFloat(b.amount).toLocaleString("ru-RU")} €</span>}
+            </div>
+            <div style={{fontSize:10,color:"#aaa",display:"flex",gap:8,flexWrap:"wrap"}}>
+              <span>{b.date.toLocaleDateString("ru-RU",{day:"numeric",month:"short",year:"numeric"})}</span>
+              {pname&&<span style={{color:priorities[b.priority]?.color||"#888"}}>◆ {pname}</span>}
+              {overdue&&<span style={{color:"#ef4444",fontWeight:700}}>⚠ просрочено</span>}
+            </div>
+          </div>
+          {writeOffBtn
+            ?<button onClick={()=>onWriteOff(p=>({...p,[b.id]:!p[b.id]}))} style={{
+                padding:"3px 9px",borderRadius:5,fontSize:10,cursor:"pointer",fontFamily:"inherit",flexShrink:0,
+                border:`1px solid ${isWO?"#555":"#f87171"}`,background:isWO?"transparent":"#1f0d0d",color:isWO?"#666":"#f87171",
+              }}>{isWO?"Восст.":"Списать"}</button>
+            :<span style={{fontSize:9,color:b.paid?"#4ade80":"#ef4444",border:`1px solid ${b.paid?"#4ade8044":"#ef444444"}`,borderRadius:4,padding:"2px 6px",flexShrink:0}}>
+              {b.paid?"оплачено":"не оплачено"}
+            </span>
+          }
+        </div>
+      </div>
+    );
+  };
+
+  const TS=(active,color="#fbbf24")=>({
+    flex:1,padding:"7px 2px",borderRadius:7,fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:active?700:400,
+    border:`1px solid ${active?color:"#222"}`,background:active?`${color}18`:"#111",color:active?color:"#777",textAlign:"center",
+  });
+
+  return(
+    <div style={{padding:16}}>
+      <div style={{fontSize:11,color:"#ddd",letterSpacing:2,textTransform:"uppercase",marginBottom:12}}>Финансы</div>
+
+      {/* Toggle amounts */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"9px 12px",background:"#111",borderRadius:8,border:"1px solid #222"}}>
+        <div onClick={()=>setShowAmounts(p=>!p)} style={{width:38,height:22,borderRadius:11,cursor:"pointer",transition:"all .2s",flexShrink:0,background:showAmounts?"#4ade80":"#333",position:"relative"}}>
+          <div style={{position:"absolute",top:4,left:showAmounts?19:4,width:14,height:14,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+        </div>
+        <span style={{fontSize:12,color:showAmounts?"#4ade80":"#888",fontWeight:600}}>Показывать суммы в отчётах</span>
+      </div>
+
+      {/* Always-visible summary cards */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+        <div style={{background:"#1a0000",border:"1px solid #ef444455",borderRadius:9,padding:"10px 12px",cursor:"pointer"}} onClick={()=>setFinTab("overdue")}>
+          <div style={{fontSize:9,color:"#ef4444",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>⚠ Просроченный долг</div>
+          <div style={{fontSize:20,fontWeight:700,color:overdueTotal>0?"#ef4444":"#4ade80"}}>{showAmounts?fmt(overdueTotal):`${overdueBookings.length} зад.`}</div>
+          <div style={{fontSize:9,color:"#888",marginTop:2}}>{overdueBookings.length} неоплач.</div>
+        </div>
+        <div style={{background:"#001a0a",border:"1px solid #4ade8055",borderRadius:9,padding:"10px 12px",cursor:"pointer"}} onClick={()=>setFinTab("upcoming")}>
+          <div style={{fontSize:9,color:"#4ade80",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>📅 Предстоящие</div>
+          <div style={{fontSize:20,fontWeight:700,color:"#4ade80"}}>{showAmounts?fmt(upcomingTotal):`${upcomingBookings.length} зад.`}</div>
+          <div style={{fontSize:9,color:"#888",marginTop:2}}>{upcomingBookings.length} запланир.</div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5,marginBottom:14}}>
+        <button style={TS(finTab==="overview","#fbbf24")} onClick={()=>setFinTab("overview")}>📊 Обзор</button>
+        <button style={TS(finTab==="overdue","#ef4444")} onClick={()=>setFinTab("overdue")}>⚠ Долги</button>
+        <button style={TS(finTab==="upcoming","#4ade80")} onClick={()=>setFinTab("upcoming")}>📅 Планы</button>
+        <button style={TS(finTab==="writeoff","#f87171")} onClick={()=>setFinTab("writeoff")}>✗ Списать</button>
+      </div>
+
+      {/* OVERVIEW */}
+      {finTab==="overview"&&(
+        <div>
+          <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
+            {PERIODS.map(p=>(
+              <button key={p.key} onClick={()=>setPeriodKey(p.key)} style={{
+                padding:"5px 10px",borderRadius:6,fontSize:10,cursor:"pointer",fontFamily:"inherit",
+                border:`1px solid ${periodKey===p.key?"#fbbf24":"#333"}`,
+                background:periodKey===p.key?"#1a1500":"#111",
+                color:periodKey===p.key?"#fbbf24":"#999",fontWeight:periodKey===p.key?700:400,
+              }}>{p.label}</button>
+            ))}
+          </div>
+          {periodKey==="custom"&&(
+            <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"center"}}>
+              <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
+              <span style={{color:"#888"}}>—</span>
+              <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)} style={{...inp,marginBottom:0,flex:1,fontSize:11,colorScheme:"dark"}}/>
+            </div>
+          )}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+            <div style={{background:"#0d1f14",border:"1px solid #4ade8033",borderRadius:9,padding:"10px 12px"}}>
+              <div style={{fontSize:10,color:"#4ade80",marginBottom:4}}>Оплачено</div>
+              <div style={{fontSize:18,fontWeight:700,color:"#4ade80"}}>{showAmounts?fmt(periodPaid):`${periodBookings.filter(b=>b.paid).length} зад.`}</div>
+            </div>
+            <div style={{background:"#1a0d0d",border:"1px solid #ef444433",borderRadius:9,padding:"10px 12px"}}>
+              <div style={{fontSize:10,color:"#ef4444",marginBottom:4}}>Не оплачено</div>
+              <div style={{fontSize:18,fontWeight:700,color:periodDebt>0?"#ef4444":"#888"}}>{showAmounts?fmt(periodDebt):`${periodBookings.filter(b=>!b.paid).length} зад.`}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OVERDUE */}
+      {finTab==="overdue"&&(
+        <div>
+          <div style={{fontSize:10,color:"#ef4444",marginBottom:10,fontWeight:600}}>
+            Просроченные неоплаченные ({overdueBookings.length}){showAmounts&&overdueTotal>0&&` — ${fmt(overdueTotal)}`}
+          </div>
+          {overdueBookings.length===0
+            ?<div style={{fontSize:12,color:"#555",textAlign:"center",padding:20}}>Просроченных долгов нет 🎉</div>
+            :overdueBookings.map(b=><BRow key={b.id} b={b}/>)
+          }
+        </div>
+      )}
+
+      {/* UPCOMING */}
+      {finTab==="upcoming"&&(
+        <div>
+          <div style={{fontSize:10,color:"#4ade80",marginBottom:10,fontWeight:600}}>
+            Предстоящие платежи ({upcomingBookings.length}){showAmounts&&upcomingTotal>0&&` — ${fmt(upcomingTotal)}`}
+          </div>
+          {upcomingBookings.length===0
+            ?<div style={{fontSize:12,color:"#555",textAlign:"center",padding:20}}>Предстоящих платежей нет</div>
+            :upcomingBookings.map(b=><BRow key={b.id} b={b}/>)
+          }
+        </div>
+      )}
+
+      {/* WRITE-OFF */}
+      {finTab==="writeoff"&&(
+        <div>
+          <div style={{fontSize:10,color:"#f87171",marginBottom:10,fontWeight:600}}>Списать безнадёжные долги</div>
+          {allBookings.filter(b=>!b.paid).length===0
+            ?<div style={{fontSize:12,color:"#555",textAlign:"center",padding:20}}>Долгов нет</div>
+            :allBookings.filter(b=>!b.paid).sort((a,b2)=>a.date-b2.date).map(b=><BRow key={b.id} b={b} writeOffBtn={true}/>)
+          }
+          {Object.values(writtenOff).some(v=>v)&&(
+            <div style={{marginTop:14}}>
+              <div style={{fontSize:10,color:"#555",marginBottom:8}}>— Списанные (не учитываются в долге) —</div>
+              {allBookings.filter(b=>writtenOff[b.id]).map(b=><BRow key={b.id} b={b} writeOffBtn={true}/>)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── AddWeekModal ─────────────────────────────────────────────────────────────
+function AddWeekModal({existingWKs,onAdd,onClose}){
+  const today=new Date(); today.setHours(0,0,0,0);
+  const start=getMonday(today);
+  const [direction,setDirection]=useState("future"); // "future" | "past"
+
+  // 104 weeks forward or backward
+  const allM = direction==="future"
+    ? Array.from({length:104},(_,i)=>addWeeks(start,i))
+    : Array.from({length:104},(_,i)=>addWeeks(start,-(i+1)));
+
+  const byMonth={}; allM.forEach(m=>{
+    const k=`${m.getFullYear()}-${String(m.getMonth()).padStart(2,"0")}`;
+    if(!byMonth[k]) byMonth[k]={label:`${MONTHS_SHORT[m.getMonth()]} ${m.getFullYear()}`,ms:[]};
+    byMonth[k].ms.push(m);
+  });
+  const sortedKeys=Object.keys(byMonth).sort(direction==="future"?(a,b)=>a>b?1:-1:(a,b)=>a>b?-1:1);
+  const byYear={}; sortedKeys.forEach(k=>{const yr=k.split("-")[0];if(!byYear[yr])byYear[yr]=[];byYear[yr].push(k);});
+  const[open,setOpen]=useState(sortedKeys[0]);
+
+  return <Overlay><MB style={{maxHeight:"88vh",overflowY:"auto",padding:"16px 13px"}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+      <ML>Добавить неделю</ML>
+      <button onClick={onClose} style={bSty("#999","#222")}>✕</button>
+    </div>
+    {/* Direction toggle */}
+    <div style={{display:"flex",gap:6,marginBottom:14}}>
+      {[["future","▶ Вперёд","#4ade80"],["past","◀ Назад","#a78bfa"]].map(([d,lbl,clr])=>(
+        <button key={d} onClick={()=>{setDirection(d);setOpen(null);}} style={{
+          flex:1,padding:"7px",borderRadius:7,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+          border:`1px solid ${direction===d?clr:"#222"}`,
+          background:direction===d?`${clr}18`:"transparent",
+          color:direction===d?clr:"#999",
+        }}>{lbl}</button>
+      ))}
+    </div>
+    {Object.entries(byYear).map(([yr,mks])=>(
+      <div key={yr}>
+        <div style={{fontSize:11,color:"#e8e8e0",letterSpacing:2,textTransform:"uppercase",padding:"6px 0 3px",borderBottom:"1px solid #1e1e1e",marginBottom:4}}>{yr}</div>
+        {mks.map(mk=>{
+          const{label,ms}=byMonth[mk];const isO=open===mk;
+          return <div key={mk} style={{marginBottom:3}}>
+            <div onClick={()=>setOpen(isO?null:mk)} style={{fontSize:11,color:"#999",padding:"4px 2px",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+              <span style={{fontSize:9,color:"#999"}}>{isO?"▼":"▶"}</span>{label}
+            </div>
+            {isO&&ms.map(m=>{
+              const wk=weekKey(m);const ex=existingWKs.has(wk);
+              return <div key={wk} onClick={()=>!ex&&onAdd(m)} style={{
+                padding:"6px 10px",borderRadius:6,marginBottom:2,cursor:ex?"default":"pointer",
+                border:`1px solid ${ex?"#181818":"#252525"}`,background:ex?"#0d0d0d":"#141414",opacity:ex?0.3:1,
+                display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:12,color:ex?"#ccc":"#ccc"}}>{fmtShort(m)} – {fmtShort(addDays(m,6))}</span>
+                {ex?<span style={{fontSize:9,color:"#999"}}>есть</span>:<span style={{fontSize:16,color:"#4ade80",lineHeight:1}}>+</span>}
+              </div>;
+            })}
+          </div>;
+        })}
+      </div>
+    ))}
+  </MB></Overlay>;
+}
+
+// ─── Primitives ───────────────────────────────────────────────────────────────
+
+// ─── ClientInput with autocomplete ───────────────────────────────────────────
+function ClientInput({value,onChange,suggestions,placeholder,style}){
+  const[show,setShow]=useState(false);
+  const filtered=suggestions.filter(s=>s.toLowerCase().includes(value.toLowerCase())&&s!==value);
+  return(
+    <div style={{position:"relative"}}>
+      <input value={value} onChange={e=>{onChange(e.target.value);setShow(true);}}
+        onFocus={()=>setShow(true)} onBlur={()=>setTimeout(()=>setShow(false),150)}
+        placeholder={placeholder} style={style}/>
+      {show&&filtered.length>0&&(
+        <div style={{position:"absolute",top:"100%",left:0,right:0,background:"#1a1a1a",
+          border:"1px solid #333",borderRadius:6,zIndex:50,maxHeight:120,overflowY:"auto"}}>
+          {filtered.map(s=>(
+            <div key={s} onMouseDown={()=>{onChange(s);setShow(false);}}
+              style={{padding:"6px 10px",fontSize:11,color:"#e8e8e0",cursor:"pointer",
+                borderBottom:"1px solid #222"}}
+              onMouseEnter={e=>e.target.style.background="#aaa"}
+              onMouseLeave={e=>e.target.style.background="transparent"}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Badge({color,children}){ return <span style={{fontSize:11,color,border:`1px solid ${color}44`,borderRadius:4,padding:"1px 5px",background:`${color}12`}}>{children}</span>; }
+const inp={width:"100%",padding:"8px 10px",background:"#0d0d0d",border:"1px solid #2a2a2a",borderRadius:7,color:"#f0f0ec",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box",marginBottom:10};
+function bSty(c,b){return{fontSize:10,padding:"2px 7px",borderRadius:4,border:`1px solid ${b}`,background:"transparent",color:c,cursor:"pointer",fontFamily:"inherit"};}
+function Overlay({children}){return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,padding:16}}>{children}</div>;}
+function MB({children,style}){return <div style={{background:"#141414",border:"1px solid #222",borderRadius:14,padding:18,width:"100%",maxWidth:390,...style}}>{children}</div>;}
+function ML({children}){return <div style={{fontSize:9,letterSpacing:3,color:"#ddd",textTransform:"uppercase",marginBottom:7}}>{children}</div>;}
+function Row({children,style}){return <div style={{display:"flex",gap:8,...style}}>{children}</div>;}
+function Btn({children,onClick,c,b,bg,bold}){return <button onClick={onClick} style={{flex:1,padding:"8px",borderRadius:7,border:`1px solid ${b}`,background:bg,color:c,fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:bold?700:400}}>{children}</button>;}
