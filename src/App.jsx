@@ -63,16 +63,16 @@ const PRIORITY_KEYS = ["a","b","c","d","e","f","g","h","i","j"];
 
 // Default priority config
 const DEFAULT_PRIORITIES = {
-  a: { name:"", maxPerWeek:1, color:"#f87171", canBeCommercial:true },
-  b: { name:"", maxPerWeek:1, color:"#fb923c", canBeCommercial:true },
-  c: { name:"", maxPerWeek:2, color:"#facc15" , canBeCommercial:true},
-  d: { name:"", maxPerWeek:3, color:"#a3e635" , canBeCommercial:true},
-  e: { name:"", maxPerWeek:3, color:"#4ade80" , canBeCommercial:true},
-  f: { name:"", maxPerWeek:3, color:"#34d399" , canBeCommercial:true},
-  g: { name:"", maxPerWeek:3, color:"#22d3ee" , canBeCommercial:true},
-  h: { name:"", maxPerWeek:3, color:"#60a5fa" , canBeCommercial:true},
-  i: { name:"", maxPerWeek:3, color:"#a78bfa" , canBeCommercial:true},
-  j: { name:"", maxPerWeek:3, color:"#e879f9" , canBeCommercial:true},
+  a: { name:"", maxPerWeek:1, color:"#f87171", canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать" },
+  b: { name:"", maxPerWeek:1, color:"#fb923c", canBeCommercial:true , dueAfterDays:7, dueLabel:"Сдать"},
+  c: { name:"", maxPerWeek:2, color:"#facc15" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
+  d: { name:"", maxPerWeek:3, color:"#a3e635" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
+  e: { name:"", maxPerWeek:3, color:"#4ade80" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
+  f: { name:"", maxPerWeek:3, color:"#34d399" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
+  g: { name:"", maxPerWeek:3, color:"#22d3ee" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
+  h: { name:"", maxPerWeek:3, color:"#60a5fa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
+  i: { name:"", maxPerWeek:3, color:"#a78bfa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
+  j: { name:"", maxPerWeek:3, color:"#e879f9" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
 };
 
 const BT = { COMMERCIAL:"commercial", NONCOMMERCIAL:"noncommercial" };
@@ -174,6 +174,7 @@ function buildCSV(weeks, days, priorities){
 const REMINDER_KEY="schedule_last_export";
 const CHECK_KEY="schedule_last_check";
 const GCAL_KEY="schedule_last_gcal_sync";
+const DEADLINES_KEY="schedule_deadlines_v1";
 const PRIORITIES_KEY="schedule_priorities_v2";
 const WEEKS_KEY="schedule_weeks_v1";
 const DAYS_KEY="schedule_days_v1";
@@ -197,6 +198,11 @@ export default function App(){
   const [showReminder,setShowReminder]     = useState(false);
   const [showCheckReminder,setShowCheckReminder] = useState(false);
   const [showGcalReminder,setShowGcalReminder] = useState(false);
+  // deadlines: auto-generated + manual { id, bookingId?, label, date, color, progress, done, manual? }
+  const [deadlines,setDeadlines] = useState(()=>{
+    try{ const s=getLS(DEADLINES_KEY); if(s) return JSON.parse(s); }catch{}
+    return [];
+  });
   const [writtenOff,setWrittenOff] = useState({});
   const [showAmounts,setShowAmounts] = useState(true);
   const [clientPriority,setClientPriority] = useState(null); // null = show picker
@@ -208,6 +214,7 @@ export default function App(){
 
   // Persist priorities
   useEffect(()=>{ setLS(PRIORITIES_KEY, JSON.stringify(priorities)); },[priorities]);
+  useEffect(()=>{ setLS(DEADLINES_KEY, JSON.stringify(deadlines)); },[deadlines]);
 
   // Load from Supabase on mount
   useEffect(()=>{
@@ -230,6 +237,7 @@ export default function App(){
         written_off: writtenOff,
         show_amounts: showAmounts,
       });
+      setLS(DEADLINES_KEY, JSON.stringify(deadlines));
       setLS(WEEKS_KEY, JSON.stringify(weeks));
       setLS(DAYS_KEY, JSON.stringify(days));
     }, 2000);
@@ -310,9 +318,31 @@ export default function App(){
     else if(status===S.HIDDEN) setDays(p=>{const n={...p};delete n[dk];return n;});
   };
 
+  const addDeadlineForBooking=(dk,booking)=>{
+    const p=priorities[booking.priority];
+    if(!p||!p.name) return;
+    const days=p.dueAfterDays||7;
+    const bookDate=parseLocalDate(dk);
+    const dueDate=new Date(bookDate); dueDate.setDate(dueDate.getDate()+days);
+    const label=`${p.dueLabel||"Сдать"}: ${p.name}${booking.client?" ("+booking.client+")":""}`;
+    const newDl={
+      id:`dl_${booking.id}`,
+      bookingId:booking.id,
+      label,
+      date:dateKey(dueDate),
+      color:p.color||"#4ade80",
+      progress:0,
+      done:false,
+      manual:false,
+    };
+    setDeadlines(prev=>[...prev.filter(d=>d.bookingId!==booking.id),newDl]);
+  };
+
   const addBooking=(dk,booking,wk)=>{
     // 1. Add the booking to days state
     setDays(p=>({...p,[dk]:{...(p[dk]||{}),status:undefined,bookings:[...(p[dk]?.bookings||[]),booking]}}));
+    // Auto-create deadline
+    addDeadlineForBooking(dk,booking);
 
     // 2. After booking: count booked days + open days in this week, close one open day if booked>=3
     if(!wk) return;
@@ -649,11 +679,13 @@ export default function App(){
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
           {[
-            ["schedule","📅","#4ade80","График"],
-            ["client","📊","#60a5fa","Отчёты"],
-            ["archive","🗂","#a78bfa","Архив"],
+            ["schedule","🗓","#4ade80","График"],
+            ["client","👥","#60a5fa","Отчёты"],
+            ["archive","🗄","#a78bfa","Архив"],
             ["settings","⚙️","#e0e0d8","Настройки"],
-            ["finance","💰","#fbbf24","Финансы"],
+            ["finance","💶","#fbbf24","Финансы"],
+            ["deadlines","⏰","#f97316","Дедлайны"],
+            ["progress","📊","#34d399","Прогресс"],
           ].map(([v,icon,c,tip])=>(
             <button key={v} title={tip}
               onClick={()=>setView(prev=>prev===v?"schedule":v)}
@@ -670,29 +702,29 @@ export default function App(){
 
           <button onClick={handleBackup} title="Резервная копия (JSON)"
             style={{width:38,height:38,borderRadius:8,
-              border:`2px solid ${backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#2a2a3a"}`,
-              background:backupMsg==="saved"?"#0d2a0d":backupMsg==="error"?"#1a0d0d":"#111",
-              color:backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#a78bfa",
+              border:`2px solid ${backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#555"}`,
+              background:backupMsg==="saved"?"#0d2a0d":backupMsg==="error"?"#1a0d0d":"#1e1e1e",
+              color:backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#c4a8ff",
               fontSize:backupMsg?14:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
-            {backupMsg==="saved"?"✓":backupMsg==="error"?"✗":"💾"}
+            {backupMsg==="saved"?"✓":backupMsg==="error"?"✗":"🖫"}
           </button>
           <button onClick={()=>importRef.current?.click()} title="Восстановить из файла"
             style={{width:38,height:38,borderRadius:8,
-              border:`2px solid ${backupMsg==="restored"?"#4ade80":"#2a2a3a"}`,
-              background:backupMsg==="restored"?"#0d2a0d":"#111",
-              color:backupMsg==="restored"?"#4ade80":"#60a5fa",
+              border:`2px solid ${backupMsg==="restored"?"#4ade80":"#555"}`,
+              background:backupMsg==="restored"?"#0d2a0d":"#1e1e1e",
+              color:backupMsg==="restored"?"#4ade80":"#7ec8ff",
               fontSize:backupMsg==="restored"?14:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
-            {backupMsg==="restored"?"✓":"📂"}
+            {backupMsg==="restored"?"✓":"⬆️"}
           </button>
           <input ref={importRef} type="file" accept=".json" onChange={handleRestore}
             style={{display:"none"}}/>
-          <button onClick={handleICS} title="Экспорт в Google Calendar (.ics)"
-            style={{width:38,height:38,borderRadius:8,border:"2px solid #1a2a3a",background:"#111",color:"#4fc3f7",
+          <button onClick={handleICS} title="Экспорт в Google Calendar (.ics) — скачать и импортировать"
+            style={{width:38,height:38,borderRadius:8,border:"2px solid #555",background:"#1e1e1e",color:"#4fc3f7",
               fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
-            📆
+            <span style={{fontSize:13,fontWeight:900,color:"#4fc3f7",lineHeight:1}}>G+</span>
           </button>
           <button onClick={()=>setAddOpen(true)} title="Добавить неделю"
-            style={{width:38,height:38,borderRadius:8,border:"2px solid #2a2a2a",background:"#111",color:"#e8e8e0",
+            style={{width:38,height:38,borderRadius:8,border:"2px solid #555",background:"#1e1e1e",color:"#ffffff",
               fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>＋</button>
         </div>
       </div>
@@ -780,6 +812,12 @@ export default function App(){
         />
       )}
 
+      {view==="deadlines"&&(
+        <DeadlinesView deadlines={deadlines} setDeadlines={setDeadlines} priorities={priorities}/>
+      )}
+      {view==="progress"&&(
+        <ProgressView deadlines={deadlines} setDeadlines={setDeadlines}/>
+      )}
       {view==="finance"&&(
         <FinanceView days={days} priorities={priorities} writtenOff={writtenOff} onWriteOff={setWrittenOff} showAmounts={showAmounts} setShowAmounts={setShowAmounts}/>
       )}
@@ -1454,7 +1492,8 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
                     knownClients={knownClients}
                     onSave={saveEdit} onCancel={()=>setEditId(null)}/>
                 : <BookingViewCard key={b.id} b={b} priorities={priorities}
-                    onEdit={()=>startEdit(b)} onDelete={()=>onRemoveBooking(dk,b.id)}/>
+                    onEdit={()=>startEdit(b)} onDelete={()=>onRemoveBooking(dk,b.id)}
+                    onMarkPaid={(id)=>onUpdateBooking(dk,id,{paid:true})}/>
             )}
           </div>
         )}
@@ -1490,7 +1529,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
   );
 }
 
-function BookingViewCard({b, priorities, onEdit, onDelete}){
+function BookingViewCard({b, priorities, onEdit, onDelete, onMarkPaid}){
   const p=priorities[b.priority]; const pc=p?.color||"#ccc";
   const bs=BT_STYLE[b.type]; const isComm=b.type===BT.COMMERCIAL;
   return(
@@ -1516,7 +1555,16 @@ function BookingViewCard({b, priorities, onEdit, onDelete}){
           🔔 {(b.reminders||[]).map(r=>r===360?"6 часов":r===1440?"1 сутки":"5 дней").join(", ")}
         </div>
       )}
-      <button onClick={onDelete} style={{...bSty("#ef4444","#ef444433"),marginTop:8,fontSize:9}}>удалить</button>
+      <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+        {b.type===BT.COMMERCIAL&&!b.paid&&(
+          <button onClick={()=>onMarkPaid(b.id)} style={{
+            padding:"5px 14px",borderRadius:6,border:"1px solid #4ade80",
+            background:"#0d1f14",color:"#4ade80",fontSize:11,cursor:"pointer",
+            fontFamily:"inherit",fontWeight:700,
+          }}>✓ Оплачено</button>
+        )}
+        <button onClick={onDelete} style={{...bSty("#ef4444","#ef444433"),fontSize:9}}>удалить</button>
+      </div>
     </div>
   );
 }
@@ -2002,6 +2050,293 @@ function AddWeekModal({existingWKs,onAdd,onClose}){
 }
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
+
+// ─── DeadlinesView ───────────────────────────────────────────────────────────
+function DeadlinesView({deadlines, setDeadlines, priorities}){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const [curYear,setCurYear]  = useState(today.getFullYear());
+  const [curMonth,setCurMonth]= useState(today.getMonth());
+  const [selected,setSelected]= useState(null);   // dateKey string
+  const [showAdd,setShowAdd]  = useState(false);
+  const [newDl,setNewDl]      = useState({label:"",date:"",color:"#f97316",progress:0});
+
+  // navigate months
+  const prevMonth=()=>{ if(curMonth===0){setCurMonth(11);setCurYear(y=>y-1);}else setCurMonth(m=>m-1); };
+  const nextMonth=()=>{ if(curMonth===11){setCurMonth(0);setCurYear(y=>y+1);}else setCurMonth(m=>m+1); };
+
+  // Build calendar grid
+  const firstDay = new Date(curYear, curMonth, 1);
+  const daysInMonth = new Date(curYear, curMonth+1, 0).getDate();
+  const startDow = (firstDay.getDay()+6)%7; // Mon=0
+
+  // Map deadline dates → items
+  const dlByDate = {};
+  deadlines.forEach(d=>{ if(!dlByDate[d.date]) dlByDate[d.date]=[]; dlByDate[d.date].push(d); });
+
+  const updateDl=(id,changes)=>setDeadlines(p=>p.map(d=>d.id===id?{...d,...changes}:d));
+  const deleteDl=(id)=>setDeadlines(p=>p.filter(d=>d.id!==id));
+
+  const addManual=()=>{
+    if(!newDl.label||!newDl.date) return;
+    setDeadlines(p=>[...p,{...newDl,id:`m_${Date.now()}`,manual:true,done:false}]);
+    setNewDl({label:"",date:"",color:"#f97316",progress:0});
+    setShowAdd(false);
+  };
+
+  const todayKey=dateKey(today);
+  const selectedItems=selected?dlByDate[selected]||[]:[];
+
+  return(
+    <div style={{padding:14}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <div style={{fontSize:11,color:"#e0e0d8",fontWeight:700,letterSpacing:2,textTransform:"uppercase"}}>⏰ Дедлайны</div>
+        <button onClick={()=>setShowAdd(p=>!p)} style={{
+          padding:"5px 12px",borderRadius:6,border:"1px solid #f97316",
+          background:showAdd?"#1a0900":"transparent",color:"#f97316",
+          fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+        }}>+ Добавить</button>
+      </div>
+
+      {/* Add form */}
+      {showAdd&&(
+        <div style={{border:"1px solid #2a2a2a",borderRadius:9,padding:"12px 14px",marginBottom:12,background:"#111"}}>
+          <div style={{fontSize:9,color:"#aaa",letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>Новый дедлайн</div>
+          <input value={newDl.label} onChange={e=>setNewDl(p=>({...p,label:e.target.value}))}
+            placeholder="Название задачи" style={{...inp,fontSize:12}}/>
+          <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"flex-end"}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:9,color:"#aaa",marginBottom:3}}>Дата сдачи</div>
+              <input type="date" value={newDl.date} onChange={e=>setNewDl(p=>({...p,date:e.target.value}))}
+                style={{...inp,marginBottom:0,colorScheme:"dark"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"#aaa",marginBottom:3}}>Цвет</div>
+              <input type="color" value={newDl.color} onChange={e=>setNewDl(p=>({...p,color:e.target.value}))}
+                style={{width:40,height:34,border:"none",background:"none",cursor:"pointer",padding:0}}/>
+            </div>
+          </div>
+          <Row>
+            <Btn onClick={()=>setShowAdd(false)} c="#888" b="#333" bg="transparent">Отмена</Btn>
+            <Btn onClick={addManual} c="#f97316" b="#f97316" bg="#1a0900" bold>Добавить</Btn>
+          </Row>
+        </div>
+      )}
+
+      {/* Month nav */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <button onClick={prevMonth} style={{...bSty("#aaa","#333"),fontSize:16,padding:"4px 12px"}}>‹</button>
+        <span style={{fontSize:13,fontWeight:700,color:"#e8e8e0"}}>
+          {MONTHS_NOM[curMonth]} {curYear}
+        </span>
+        <button onClick={nextMonth} style={{...bSty("#aaa","#333"),fontSize:16,padding:"4px 12px"}}>›</button>
+      </div>
+
+      {/* Weekday headers */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
+        {["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(d=>(
+          <div key={d} style={{textAlign:"center",fontSize:9,color:"#555",letterSpacing:1,paddingBottom:4}}>{d}</div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:16}}>
+        {/* Empty cells before first day */}
+        {Array.from({length:startDow},(_,i)=>(
+          <div key={`e${i}`}/>
+        ))}
+        {/* Day cells */}
+        {Array.from({length:daysInMonth},(_,i)=>{
+          const day=i+1;
+          const dk2=`${curYear}-${String(curMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+          const items=dlByDate[dk2]||[];
+          const isToday=dk2===todayKey;
+          const isSelected=selected===dk2;
+          const hasDone=items.length>0&&items.every(d=>d.done);
+          const hasOverdue=items.some(d=>!d.done&&parseLocalDate(dk2)<today);
+
+          return(
+            <div key={day} onClick={()=>setSelected(isSelected?null:dk2)}
+              style={{
+                minHeight:40,borderRadius:6,padding:"3px 2px",cursor:"pointer",
+                border:`1px solid ${isSelected?"#f97316":isToday?"#4ade80":items.length>0?"#333":"#1a1a1a"}`,
+                background:isSelected?"#1a0900":isToday?"#0d1f14":items.length>0?"#111":"transparent",
+                position:"relative",
+              }}>
+              {/* Day number */}
+              <div style={{textAlign:"center",fontSize:11,fontWeight:isToday?700:400,
+                color:isToday?"#4ade80":isSelected?"#f97316":"#aaa",marginBottom:2}}>
+                {day}
+              </div>
+              {/* Deadline dots */}
+              {items.length>0&&(
+                <div style={{display:"flex",justifyContent:"center",gap:2,flexWrap:"wrap"}}>
+                  {items.slice(0,3).map((d,di)=>(
+                    <div key={di} style={{
+                      width:6,height:6,borderRadius:"50%",
+                      background:d.done?"#333":d.color,
+                      opacity:d.done?0.5:1,
+                      outline:hasOverdue&&!d.done?"1px solid #ef4444":"none",
+                      outlineOffset:1,
+                    }}/>
+                  ))}
+                  {items.length>3&&<div style={{fontSize:7,color:"#666"}}>+{items.length-3}</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Selected day detail */}
+      {selected&&(
+        <div style={{border:"1px solid #2a2a2a",borderRadius:10,padding:"12px 14px",background:"#0f0f0f"}}>
+          <div style={{fontSize:10,color:"#aaa",letterSpacing:2,textTransform:"uppercase",marginBottom:10}}>
+            {parseLocalDate(selected).toLocaleDateString("ru-RU",{day:"numeric",month:"long",year:"numeric"})}
+          </div>
+          {selectedItems.length===0&&(
+            <div style={{fontSize:12,color:"#555",textAlign:"center",padding:"10px 0"}}>
+              Нет дедлайнов на этот день
+            </div>
+          )}
+          {selectedItems.map(d=>{
+            const daysLeft=Math.round((parseLocalDate(d.date)-today)/(24*3600*1000));
+            return(
+              <div key={d.id} style={{
+                padding:"10px 12px",borderRadius:8,marginBottom:7,
+                border:`1px solid ${d.done?"#222":`${d.color}55`}`,
+                background:d.done?"#0a0a0a":`${d.color}0a`,
+              }}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <div style={{width:8,height:8,borderRadius:2,background:d.color}}/>
+                    <span style={{fontSize:13,color:d.done?"#555":"#e8e8e0",fontWeight:600,
+                      textDecoration:d.done?"line-through":"none"}}>{d.label}</span>
+                  </div>
+                  <div style={{display:"flex",gap:5}}>
+                    <button onClick={()=>updateDl(d.id,{done:!d.done})} style={{
+                      padding:"3px 9px",borderRadius:5,fontSize:10,cursor:"pointer",fontFamily:"inherit",
+                      border:`1px solid ${d.done?"#555":"#4ade80"}`,
+                      background:d.done?"transparent":"#0d1f14",
+                      color:d.done?"#555":"#4ade80",fontWeight:700,
+                    }}>{d.done?"Вернуть":"Готово"}</button>
+                    <button onClick={()=>deleteDl(d.id)} style={{...bSty("#ef4444","#ef444433"),fontSize:9}}>✕</button>
+                  </div>
+                </div>
+                {/* Progress */}
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                  <div style={{flex:1,height:5,borderRadius:3,background:"#222",overflow:"hidden"}}>
+                    <div style={{height:"100%",borderRadius:3,background:d.color,width:`${d.progress||0}%`,transition:"width .3s"}}/>
+                  </div>
+                  <span style={{fontSize:10,color:d.color,fontWeight:700,minWidth:28}}>{d.progress||0}%</span>
+                </div>
+                {/* Quick % buttons */}
+                <div style={{display:"flex",gap:4}}>
+                  {[0,25,50,75,100].map(v=>(
+                    <button key={v} onClick={()=>updateDl(d.id,{progress:v,done:v>=100})} style={{
+                      padding:"2px 7px",borderRadius:4,fontSize:9,cursor:"pointer",fontFamily:"inherit",
+                      border:`1px solid ${(d.progress||0)===v?d.color:"#222"}`,
+                      background:(d.progress||0)===v?`${d.color}20`:"transparent",
+                      color:(d.progress||0)===v?d.color:"#666",
+                    }}>{v}%</button>
+                  ))}
+                </div>
+                {!d.done&&<div style={{fontSize:9,color:daysLeft<0?"#ef4444":daysLeft===0?"#fbbf24":"#666",marginTop:5}}>
+                  {daysLeft<0?`Просрочено на ${Math.abs(daysLeft)} дн.`:daysLeft===0?"Сегодня!":daysLeft===1?"Завтра":`Через ${daysLeft} дн.`}
+                </div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ProgressView ─────────────────────────────────────────────────────────────
+function ProgressView({deadlines, setDeadlines}){
+  const [editingId,setEditingId]=useState(null);
+  const active=deadlines.filter(d=>!d.done).sort((a,b)=>a.date.localeCompare(b.date));
+  const done=deadlines.filter(d=>d.done);
+
+  const setProgress=(id,val)=>setDeadlines(p=>p.map(d=>d.id===id?{...d,progress:Math.max(0,Math.min(100,val)),done:val>=100}:d));
+
+  return(
+    <div style={{padding:14}}>
+      <div style={{fontSize:11,color:"#e0e0d8",letterSpacing:2,textTransform:"uppercase",fontWeight:700,marginBottom:14}}>📈 Прогресс выполнения</div>
+
+      {active.length===0&&done.length===0&&(
+        <div style={{fontSize:12,color:"#555",textAlign:"center",paddingTop:30}}>Нет активных дедлайнов</div>
+      )}
+
+      {active.map(d=>{
+        const dt=parseLocalDate(d.date);
+        const today=new Date(); today.setHours(0,0,0,0);
+        const daysLeft=Math.round((dt-today)/(24*3600*1000));
+        const isEditing=editingId===d.id;
+        return(
+          <div key={d.id} onClick={()=>setEditingId(isEditing?null:d.id)}
+            style={{padding:"12px 14px",borderRadius:9,marginBottom:8,cursor:"pointer",
+              border:`1px solid ${d.color}55`,background:`${d.color}08`,
+              transition:"all .15s",
+            }}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+              <span style={{fontSize:13,color:"#e8e8e0",fontWeight:600}}>{d.label}</span>
+              <span style={{fontSize:10,color:daysLeft<0?"#ef4444":daysLeft<=3?"#fbbf24":"#aaa"}}>
+                {daysLeft<0?`просрочено ${Math.abs(daysLeft)}д`:daysLeft===0?"сегодня":daysLeft===1?"завтра":`${daysLeft} дн.`}
+              </span>
+            </div>
+            {/* Big progress bar */}
+            <div style={{height:12,borderRadius:6,background:"#222",overflow:"hidden",marginBottom:isEditing?10:0}}>
+              <div style={{height:"100%",borderRadius:6,background:d.color,
+                width:`${d.progress||0}%`,transition:"width .3s"}}/>
+            </div>
+            {isEditing&&(
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                  <span style={{fontSize:11,color:"#aaa"}}>Прогресс: {d.progress||0}%</span>
+                  <span style={{fontSize:11,color:d.color,fontWeight:700}}>{d.progress>=100?"✓ Готово":""}</span>
+                </div>
+                <input type="range" min="0" max="100" value={d.progress||0}
+                  onChange={e=>{e.stopPropagation();setProgress(d.id,parseInt(e.target.value));}}
+                  onClick={e=>e.stopPropagation()}
+                  style={{width:"100%",accentColor:d.color,marginBottom:8}}/>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {[0,25,50,75,100].map(v=>(
+                    <button key={v} onClick={e=>{e.stopPropagation();setProgress(d.id,v);}}
+                      style={{padding:"4px 10px",borderRadius:5,fontSize:10,cursor:"pointer",fontFamily:"inherit",
+                        border:`1px solid ${d.progress===v?d.color:"#333"}`,
+                        background:d.progress===v?`${d.color}20`:"transparent",
+                        color:d.progress===v?d.color:"#888",
+                      }}>{v}%</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!isEditing&&(
+              <div style={{textAlign:"right",fontSize:10,color:d.color,fontWeight:700,marginTop:2}}>{d.progress||0}%</div>
+            )}
+          </div>
+        );
+      })}
+
+      {done.length>0&&(
+        <div style={{marginTop:16}}>
+          <div style={{fontSize:9,color:"#555",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>— Выполненные —</div>
+          {done.map(d=>(
+            <div key={d.id} style={{padding:"8px 13px",borderRadius:8,marginBottom:5,
+              border:"1px solid #222",background:"#0a0a0a",opacity:0.5,
+              display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontSize:12,color:"#555",textDecoration:"line-through"}}>{d.label}</span>
+              <button onClick={()=>setDeadlines(p=>p.map(x=>x.id===d.id?{...x,done:false,progress:x.progress>=100?90:x.progress}:x))}
+                style={{...bSty("#888","#333"),fontSize:9}}>Вернуть</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── ClientInput with autocomplete ───────────────────────────────────────────
 function ClientInput({value,onChange,suggestions,placeholder,style}){
