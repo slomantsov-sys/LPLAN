@@ -369,6 +369,7 @@ export default function App(){
     const newDl={
       id:`dl_${booking.id}`,
       bookingId:booking.id,
+      bookingDk:dk,
       label,
       date:dateKey(dueDate),
       color:p.color||"#4ade80",
@@ -859,7 +860,7 @@ export default function App(){
       )}
 
       {view==="deadlines"&&(
-        <DeadlinesView deadlines={deadlines} setDeadlines={setDeadlines} priorities={priorities}/>
+        <DeadlinesView deadlines={deadlines} setDeadlines={setDeadlines} priorities={priorities} days={days}/>
       )}
       {view==="progress"&&(
         <ProgressView deadlines={deadlines} setDeadlines={setDeadlines}/>
@@ -953,7 +954,7 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
               const bookDate=parseLocalDate(dk);
               const dueDate=new Date(bookDate); dueDate.setDate(dueDate.getDate()+days2);
               newDls.push({
-                id:`dl_${b.id}`,bookingId:b.id,
+                id:`dl_${b.id}`,bookingId:b.id,bookingDk:dk,
                 label:`${p.dueLabel||"Сдать"}: ${p.name}${b.client?" ("+b.client+")":""}`,
                 date:dateKey(dueDate),color:p.color||"#4ade80",
                 progress:0,done:false,manual:false,
@@ -2234,7 +2235,7 @@ function AddWeekModal({existingWKs,onAdd,onClose}){
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
 // ─── DeadlinesView ───────────────────────────────────────────────────────────
-function DeadlinesView({deadlines, setDeadlines, priorities}){
+function DeadlinesView({deadlines, setDeadlines, priorities, days}){
   const today = new Date(); today.setHours(0,0,0,0);
   const [curYear,setCurYear]  = useState(today.getFullYear());
   const [curMonth,setCurMonth]= useState(today.getMonth());
@@ -2273,11 +2274,23 @@ function DeadlinesView({deadlines, setDeadlines, priorities}){
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
         <div style={{fontSize:11,color:"#e0e0d8",fontWeight:700,letterSpacing:2,textTransform:"uppercase"}}>⏰ Дедлайны</div>
-        <button onClick={()=>setShowAdd(p=>!p)} style={{
-          padding:"5px 12px",borderRadius:6,border:"1px solid #f97316",
-          background:showAdd?"#1a0900":"transparent",color:"#f97316",
-          fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
-        }}>+ Добавить</button>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>setShowAdd(p=>!p)} style={{
+            padding:"5px 12px",borderRadius:6,border:"1px solid #f97316",
+            background:showAdd?"#1a0900":"transparent",color:"#f97316",
+            fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+          }}>+ Добавить</button>
+          {deadlines.length>0&&(
+            <button onClick={()=>{
+              if(window.confirm(`Удалить все ${deadlines.length} дедлайнов?`))
+                setDeadlines([]);
+            }} style={{
+              padding:"5px 10px",borderRadius:6,border:"1px solid #ef4444",
+              background:"transparent",color:"#ef4444",
+              fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+            }}>✕ Очистить</button>
+          )}
+        </div>
       </div>
 
       {/* Add form */}
@@ -2400,6 +2413,9 @@ function DeadlinesView({deadlines, setDeadlines, priorities}){
           )}
           {selectedItems.map(d=>{
             const daysLeft=Math.round((parseLocalDate(d.date)-today)/(24*3600*1000));
+            // Find original booking for extra info
+            const booking=d.bookingDk&&days?
+              (days[d.bookingDk]?.bookings||[]).find(b=>b.id===d.bookingId):null;
             return(
               <div key={d.id} style={{
                 padding:"10px 12px",borderRadius:8,marginBottom:7,
@@ -2413,8 +2429,8 @@ function DeadlinesView({deadlines, setDeadlines, priorities}){
                 background:d.done?"#0a0a0a":`${d.color}0a`,
               }}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}}>
-                  <div style={{display:"flex",alignItems:"center",gap:7}}>
-                    <div style={{width:8,height:8,borderRadius:2,background:d.color}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
+                    <div style={{width:8,height:8,borderRadius:2,background:d.color,flexShrink:0}}/>
                     <span style={{fontSize:13,color:d.done?"#555":"#e8e8e0",fontWeight:600,
                       textDecoration:d.done?"line-through":"none"}}>{d.label}</span>
                   </div>
@@ -2449,6 +2465,46 @@ function DeadlinesView({deadlines, setDeadlines, priorities}){
                 {!d.done&&<div style={{fontSize:9,color:daysLeft<0?"#ef4444":daysLeft===0?"#fbbf24":"#666",marginTop:5}}>
                   {daysLeft<0?`Просрочено на ${Math.abs(daysLeft)} дн.`:daysLeft===0?"Сегодня!":daysLeft===1?"Завтра":`Через ${daysLeft} дн.`}
                 </div>}
+                {/* Booking date + notes from original booking */}
+                {booking&&(
+                  <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #1e1e1e"}}>
+                    {d.bookingDk&&(
+                      <div style={{fontSize:10,color:"#888",marginBottom:3}}>
+                        📅 Дата съёмки: {parseLocalDate(d.bookingDk).toLocaleDateString("ru-RU",{day:"numeric",month:"long",year:"numeric"})}
+                      </div>
+                    )}
+                    {booking.timeStart&&!booking.allDay&&(
+                      <div style={{fontSize:10,color:"#888",marginBottom:3}}>
+                        🕐 {booking.timeStart}{booking.timeEnd?" – "+booking.timeEnd:""}
+                      </div>
+                    )}
+                    {booking.allDay&&(
+                      <div style={{fontSize:10,color:"#888",marginBottom:3}}>🕐 Весь день</div>
+                    )}
+                    {booking.location&&(
+                      <div style={{fontSize:10,color:"#aaa",marginBottom:3}}>📍 {booking.location}</div>
+                    )}
+                    {booking.note&&(
+                      <div style={{fontSize:11,color:"#aaa",fontStyle:"italic",marginTop:2}}>💬 {booking.note}</div>
+                    )}
+                    {booking.amount&&(
+                      <div style={{fontSize:11,color:"#fbbf24",marginTop:2}}>
+                        💶 {parseFloat(booking.amount).toLocaleString("ru-RU")} €
+                        {" · "}<span style={{color:booking.paid?"#4ade80":"#ef4444"}}>{booking.paid?"Оплачено":"Не оплачено"}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Notes on the deadline itself */}
+                {d.manual&&(
+                  <div style={{marginTop:6}}>
+                    <input value={d.note||""} onChange={e=>updateDl(d.id,{note:e.target.value})}
+                      placeholder="Заметка к дедлайну..."
+                      style={{width:"100%",padding:"5px 8px",background:"#111",border:"1px solid #222",
+                        borderRadius:5,color:"#aaa",fontSize:11,fontFamily:"inherit",outline:"none",
+                        boxSizing:"border-box"}}/>
+                  </div>
+                )}
               </div>
             );
           })}
