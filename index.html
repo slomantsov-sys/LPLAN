@@ -6,7 +6,15 @@
     <title>Планировщик</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { background: #0a0a0a; }
+      html, body {
+        background: #0a0a0a;
+        /* Disable pull-to-refresh in Chrome Android */
+        overscroll-behavior: none;
+        overscroll-behavior-y: none;
+      }
+      #root {
+        overscroll-behavior: none;
+      }
     </style>
   </head>
   <body>
