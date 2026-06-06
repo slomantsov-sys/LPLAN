@@ -275,6 +275,8 @@ export default function App(){
       if(data.days && Object.keys(data.days).length>0) setDays(data.days);
       if(data.written_off) setWrittenOff(data.written_off);
       if(data.show_amounts !== undefined) setShowAmounts(data.show_amounts);
+      if(data.deadlines && data.deadlines.length>0) setDeadlines(data.deadlines);
+      if(data.storage_reminders && Object.keys(data.storage_reminders).length>0) setStorageReminders(data.storage_reminders);
     });
   },[]);
 
@@ -287,13 +289,15 @@ export default function App(){
         weeks, days,
         written_off: writtenOff,
         show_amounts: showAmounts,
+        deadlines: deadlines,
+        storage_reminders: storageReminders,
       });
       setLS(DEADLINES_KEY, JSON.stringify(deadlines));
       setLS(WEEKS_KEY, JSON.stringify(weeks));
       setLS(DAYS_KEY, JSON.stringify(days));
     }, 2000);
     return ()=>{ if(saveTimer.current) clearTimeout(saveTimer.current); };
-  },[weeks, days, writtenOff, showAmounts]);
+  },[weeks, days, writtenOff, showAmounts, deadlines, storageReminders]);
 
   useEffect(()=>{
     const now=new Date(); now.setHours(0,0,0,0);
