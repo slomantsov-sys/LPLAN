@@ -48,8 +48,8 @@ function useScale(){
     return ()=>window.removeEventListener("resize",h);
   },[]);
   // Only scale font on desktop, no zoom (zoom breaks mobile)
-  if(w>=1200) return 1.3;
-  if(w>=768)  return 1.15;
+  if(w>=1200) return 1.6;
+  if(w>=768)  return 1.25;
   return 1;
 }
 
@@ -1968,6 +1968,24 @@ function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, pr
           })}
         </div>
       </div>
+      {/* Save to storage */}
+      <div onClick={()=>setAddForm(f=>({...f,saveStorage:!f.saveStorage}))}
+        style={{display:"flex",alignItems:"center",gap:9,marginBottom:10,padding:"9px 11px",
+          borderRadius:7,background:addForm.saveStorage?"#001428":"#0d0d0d",
+          border:`1px solid ${addForm.saveStorage?"#60a5fa":"#222"}`,cursor:"pointer"}}>
+        <div style={{width:20,height:20,borderRadius:4,flexShrink:0,transition:"all .15s",
+          border:`2px solid ${addForm.saveStorage?"#60a5fa":"#444"}`,
+          background:addForm.saveStorage?"#60a5fa":"transparent",
+          display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {addForm.saveStorage&&<span style={{color:"#000",fontSize:13,fontWeight:900,lineHeight:1}}>✓</span>}
+        </div>
+        <div>
+          <div style={{fontSize:11,color:addForm.saveStorage?"#60a5fa":"#888",fontWeight:addForm.saveStorage?700:400}}>
+            💾 Сбросить материал в хранилище
+          </div>
+          <div style={{fontSize:9,color:"#555",marginTop:1}}>Напоминание каждые 24ч пока не выполнено</div>
+        </div>
+      </div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
         <div onClick={()=>setAddForm(f=>({...f,allDay:!f.allDay,timeStart:"",timeEnd:""}))}
           style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer"}}>
@@ -2348,16 +2366,7 @@ function DeadlinesView({deadlines, setDeadlines, priorities, days}){
             background:showAdd?"#1a0900":"transparent",color:"#f97316",
             fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
           }}>+ Добавить</button>
-          {deadlines.length>0&&(
-            <button onClick={()=>{
-              if(window.confirm(`Удалить все ${deadlines.length} дедлайнов?`))
-                setDeadlines([]);
-            }} style={{
-              padding:"5px 10px",borderRadius:6,border:"1px solid #ef4444",
-              background:"transparent",color:"#ef4444",
-              fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
-            }}>✕ Очистить</button>
-          )}
+
         </div>
       </div>
 
@@ -2398,12 +2407,12 @@ function DeadlinesView({deadlines, setDeadlines, priorities, days}){
       {/* Weekday headers */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
         {["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].map(d=>(
-          <div key={d} style={{textAlign:"center",fontSize:9,color:"#555",letterSpacing:1,paddingBottom:4}}>{d}</div>
+          <div key={d} style={{textAlign:"center",fontSize:10,color:"#888",letterSpacing:1,paddingBottom:5,fontWeight:700}}>{d}</div>
         ))}
       </div>
 
       {/* Calendar grid */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:16}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:16}}>
         {/* Empty cells before first day */}
         {Array.from({length:startDow},(_,i)=>(
           <div key={`e${i}`}/>
@@ -2421,14 +2430,14 @@ function DeadlinesView({deadlines, setDeadlines, priorities, days}){
           return(
             <div key={day} onClick={()=>setSelected(isSelected?null:dk2)}
               style={{
-                minHeight:40,borderRadius:6,padding:"3px 2px",cursor:"pointer",
-                border:`1px solid ${isSelected?"#f97316":isToday?"#4ade80":items.length>0?"#333":"#1a1a1a"}`,
-                background:isSelected?"#1a0900":isToday?"#0d1f14":items.length>0?"#111":"transparent",
+                minHeight:46,borderRadius:7,padding:"4px 2px",cursor:"pointer",
+                border:`2px solid ${isSelected?"#f97316":isToday?"#4ade80":items.length>0?"#666":"#2a2a2a"}`,
+                background:isSelected?"#1a0900":isToday?"#0d1f14":items.length>0?"#181818":"#0d0d0d",
                 position:"relative",
               }}>
               {/* Day number */}
-              <div style={{textAlign:"center",fontSize:11,fontWeight:isToday?700:400,
-                color:isToday?"#4ade80":isSelected?"#f97316":"#aaa",marginBottom:2}}>
+              <div style={{textAlign:"center",fontSize:13,fontWeight:isToday||isSelected||items.length>0?700:500,
+                color:isToday?"#4ade80":isSelected?"#f97316":items.length>0?"#e8e8e0":"#666",marginBottom:2}}>
                 {day}
               </div>
               {/* Deadline dots + progress */}
@@ -2576,6 +2585,19 @@ function DeadlinesView({deadlines, setDeadlines, priorities, days}){
               </div>
             );
           })}
+        </div>
+      )}
+      {/* Clear all button at bottom */}
+      {deadlines.length>0&&(
+        <div style={{marginTop:20,paddingTop:14,borderTop:"1px solid #1e1e1e"}}>
+          <button onClick={()=>{
+            if(window.confirm(`Удалить все ${deadlines.length} дедлайнов? Это действие нельзя отменить.`))
+              setDeadlines([]);
+          }} style={{
+            width:"100%",padding:"9px",borderRadius:7,
+            border:"1px solid #ef444455",background:"#0d0000",
+            color:"#ef4444",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+          }}>✕ Очистить все дедлайны ({deadlines.length})</button>
         </div>
       )}
     </div>
