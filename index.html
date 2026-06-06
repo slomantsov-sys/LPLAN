@@ -6,17 +6,33 @@
     <title>Планировщик</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { background: #0a0a0a; font-size: 14px; }
+      html, body { height: 100%; background: #0a0a0a; }
 
-      /* Tablet */
-      @media (min-width: 768px) {
-        body { font-size: 18px; }
+      /* Mobile: normal */
+      #root {
+        transform-origin: top left;
+        width: 100%;
+        min-height: 100vh;
       }
 
-      /* Desktop */
+      /* Tablet 768+ : scale 1.4 */
+      @media (min-width: 768px) and (max-width: 1199px) {
+        #root {
+          transform: scale(1.35);
+          width: calc(100% / 1.35);
+          transform-origin: top left;
+        }
+        body { min-height: calc(100vh * 1.35); }
+      }
+
+      /* Desktop 1200+: scale 1.8 */
       @media (min-width: 1200px) {
-        body { font-size: 22px; }
-        #root { max-width: 1000px; margin: 0 auto; }
+        #root {
+          transform: scale(1.75);
+          width: calc(100% / 1.75);
+          transform-origin: top left;
+        }
+        body { min-height: calc(100vh * 1.75); }
       }
     </style>
   </head>
