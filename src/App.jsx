@@ -756,7 +756,12 @@ export default function App(){
       <div style={{borderBottom:"1px solid #1e1e1e",padding:"13px 14px 10px",position:"sticky",top:0,
         background:"#0a0a0a",zIndex:20,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
         <div>
-          <div style={{fontSize:11,letterSpacing:2,color:"#ddd",textTransform:"uppercase",marginBottom:1}}>ЗАДАНИЯ</div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{fontSize:11,letterSpacing:2,color:"#ddd",textTransform:"uppercase"}}>ЗАДАНИЯ</div>
+            <button onClick={()=>window.location.reload(true)} title="Обновить приложение"
+              style={{fontSize:10,color:"#555",background:"transparent",border:"1px solid #222",
+                borderRadius:4,padding:"1px 6px",cursor:"pointer",fontFamily:"inherit"}}>↻</button>
+          </div>
           <div style={{fontSize:14,fontWeight:700,letterSpacing:-0.5}}>{futureWKs.length} нед. вперёд · архив {pastWKs.length}</div>
         </div>
         <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-end"}}>
