@@ -591,6 +591,8 @@ export default function App(){
 
   // Client text: group by priority name, skip days with bookings
   // Build client text for a specific priority key
+  // Client dates limited to next 12 weeks from today
+  const CLIENT_WEEKS_LIMIT=12;
   const clientTextForPriority=(pk)=>{
     const p=priorities[pk]; if(!p||!p.name) return "";
     // Collect available dates for this priority
@@ -753,55 +755,28 @@ export default function App(){
           <div style={{fontSize:11,letterSpacing:2,color:"#ddd",textTransform:"uppercase",marginBottom:1}}>ЗАДАНИЯ</div>
           <div style={{fontSize:14,fontWeight:700,letterSpacing:-0.5}}>{futureWKs.length} нед. вперёд · архив {pastWKs.length}</div>
         </div>
-        <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
+        <div style={{display:"flex",gap:5,alignItems:"center",justifyContent:"flex-end"}}>
+          {/* 5 main tabs */}
           {[
             ["schedule","🗓","#4ade80","График"],
-            ["client","👥","#60a5fa","Отчёты"],
-            ["archive","🗄","#a78bfa","Архив"],
-            ["settings","⚙️","#e0e0d8","Настройки"],
-            ["finance","💶","#fbbf24","Финансы"],
             ["deadlines","⏰","#f97316","Дедлайны"],
             ["progress","📊","#34d399","Прогресс"],
+            ["reports","📨","#60a5fa","Отчёты"],
+            ["settings","⚙️","#e0e0d8","Настройки"],
           ].map(([v,icon,c,tip])=>(
             <button key={v} title={tip}
               onClick={()=>setView(prev=>prev===v?"schedule":v)}
               style={{
-                width:38,height:38,borderRadius:8,
-                border:`2px solid ${view===v?c:"#aaa"}`,
-                background:view===v?c:"#111",
+                width:40,height:40,borderRadius:9,
+                border:`2px solid ${view===v?c:"#444"}`,
+                background:view===v?c:"#1a1a1a",
                 color:view===v?"#0a0a0a":"#ccc",
-                fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
                 transition:"all .15s",
-                boxShadow:view===v?`0 0 10px ${c}66`:"none",
+                boxShadow:view===v?`0 0 12px ${c}88`:"none",
               }}>{icon}</button>
           ))}
-
-          <button onClick={handleBackup} title="Резервная копия (JSON)"
-            style={{width:38,height:38,borderRadius:8,
-              border:`2px solid ${backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#555"}`,
-              background:backupMsg==="saved"?"#0d2a0d":backupMsg==="error"?"#1a0d0d":"#1e1e1e",
-              color:backupMsg==="saved"?"#4ade80":backupMsg==="error"?"#ef4444":"#c4a8ff",
-              fontSize:backupMsg?14:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
-            {backupMsg==="saved"?"✓":backupMsg==="error"?"✗":"🖫"}
-          </button>
-          <button onClick={()=>importRef.current?.click()} title="Восстановить из файла"
-            style={{width:38,height:38,borderRadius:8,
-              border:`2px solid ${backupMsg==="restored"?"#4ade80":"#555"}`,
-              background:backupMsg==="restored"?"#0d2a0d":"#1e1e1e",
-              color:backupMsg==="restored"?"#4ade80":"#7ec8ff",
-              fontSize:backupMsg==="restored"?14:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
-            {backupMsg==="restored"?"✓":"⬆️"}
-          </button>
-          <input ref={importRef} type="file" accept=".json" onChange={handleRestore}
-            style={{display:"none"}}/>
-          <button onClick={handleICS} title="Экспорт в Google Calendar (.ics) — скачать и импортировать"
-            style={{width:38,height:38,borderRadius:8,border:"2px solid #555",background:"#1e1e1e",color:"#4fc3f7",
-              fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>
-            <span style={{fontSize:13,fontWeight:900,color:"#4fc3f7",lineHeight:1}}>G+</span>
-          </button>
-          <button onClick={()=>setAddOpen(true)} title="Добавить неделю"
-            style={{width:38,height:38,borderRadius:8,border:"2px solid #555",background:"#1e1e1e",color:"#ffffff",
-              fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",transition:"all .15s"}}>＋</button>
+          <input ref={importRef} type="file" accept=".json" onChange={handleRestore} style={{display:"none"}}/>
         </div>
       </div>
 
@@ -878,7 +853,7 @@ export default function App(){
       )}
 
       {/* ── VIEWS ── */}
-      {view==="client"&&(
+      {view==="reports"&&(
         <ReportsView
           priorities={priorities}
           clientPriority={clientPriority}
@@ -890,22 +865,37 @@ export default function App(){
           clientTextForPriority={clientTextForPriority}
           bookedText={bookedText}
           days={days}
-          priorities={priorities}
           showAmounts={showAmounts}
+          writtenOff={writtenOff}
+          onWriteOff={setWrittenOff}
+          weeks={weeks}
+          pastWKs={pastWKs}
+          handleBackup={handleBackup}
+          handleICS={handleICS}
+          importRef={importRef}
+          backupMsg={backupMsg}
+          setView={setView}
         />
       )}
 
-      {view==="archive"&&(
-        <ArchiveView
-          pastWKs={pastWKs}
-          renderWeek={renderWeek}
-          weeksAgo={weeksAgo}
-          parseWK={parseWK}
-        />
-      )}
+
 
       {view==="settings"&&(
-        <PrioritySettings priorities={priorities} onChange={setPriorities} onClose={()=>setView("schedule")} days={days} deadlines={deadlines} setDeadlines={setDeadlines}/>
+        <SettingsView
+          priorities={priorities} onChange={setPriorities}
+          days={days} deadlines={deadlines} setDeadlines={setDeadlines}
+          pastWKs={pastWKs} renderWeek={renderWeek} weeksAgo={weeksAgo} parseWK={parseWK}
+          onClose={()=>setView("schedule")}
+          onAddWeek={m=>{
+            const wk=weekKey(m);
+            if(!weeks[wk]) setWeeks(p=>({...p,[wk]:{availDays:randomDaysForWeek(wk),reserve:WR.NONE,reserveNote:"",collapsed:false}}));
+          }}
+          existingWKs={new Set(sortedWKs)}
+          handleBackup={handleBackup}
+          handleICS={handleICS}
+          importRef={importRef}
+          backupMsg={backupMsg}
+        />
       )}
 
       {view==="schedule"&&(
@@ -921,9 +911,7 @@ export default function App(){
       {view==="progress"&&(
         <ProgressView deadlines={deadlines} setDeadlines={setDeadlines} days={days}/>
       )}
-      {view==="finance"&&(
-        <FinanceView days={days} priorities={priorities} writtenOff={writtenOff} onWriteOff={setWrittenOff} showAmounts={showAmounts} setShowAmounts={setShowAmounts}/>
-      )}
+      {/* Finance moved to Reports tab */}
 
       {/* MODALS */}
       {modal?.type==="dayDetail"&&(
@@ -966,6 +954,58 @@ export default function App(){
           if(!weeks[wk]) setWeeks(p=>({...p,[wk]:{availDays:randomDaysForWeek(wk),reserve:WR.NONE,reserveNote:"",collapsed:false}}));
           // don't close — user may want to add more
         }} onClose={()=>setAddOpen(false)}/>
+      )}
+    </div>
+  );
+}
+
+// ─── SettingsView ────────────────────────────────────────────────────────────
+function SettingsView({priorities, onChange, days, deadlines, setDeadlines, pastWKs, renderWeek, weeksAgo, parseWK, onClose, onAddWeek, existingWKs, handleBackup, handleICS, importRef, backupMsg}){
+  const [tab,setTab]=useState("priorities");
+  const TABS=[["priorities","⚙️ Приоритеты"],["addweek","➕ Недели"],["backup","💾 Данные"]];
+  return(
+    <div>
+      <div style={{display:"flex",gap:4,padding:"12px 14px 0",borderBottom:"1px solid #1e1e1e",flexWrap:"wrap"}}>
+        {TABS.map(([t,lbl])=>(
+          <button key={t} onClick={()=>setTab(t)} style={{
+            padding:"7px 12px",borderRadius:"7px 7px 0 0",fontSize:11,cursor:"pointer",
+            fontFamily:"inherit",fontWeight:tab===t?700:400,
+            border:`1px solid ${tab===t?"#e0e0d8":"#222"}`,borderBottom:"none",
+            background:tab===t?"#1a1a1a":"transparent",
+            color:tab===t?"#e0e0d8":"#666",
+          }}>{lbl}</button>
+        ))}
+      </div>
+      {tab==="priorities"&&(
+        <PrioritySettings priorities={priorities} onChange={onChange}
+          onClose={onClose} days={days} deadlines={deadlines} setDeadlines={setDeadlines}/>
+      )}
+      {tab==="addweek"&&(
+        <div style={{padding:14}}>
+          <AddWeekModal existingWKs={existingWKs} onAdd={onAddWeek} onClose={()=>setTab("priorities")} inline={true}/>
+        </div>
+      )}
+      {tab==="backup"&&(
+        <div style={{padding:14}}>
+          <div style={{fontSize:11,color:"#aaa",marginBottom:14}}>Резервные копии и экспорт данных</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <button onClick={handleBackup} style={{padding:"12px",borderRadius:8,border:"1px solid #a78bfa",
+              background:"#100a1f",color:"#a78bfa",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:700,textAlign:"left"}}>
+              💾 Сохранить резервную копию (JSON)
+            </button>
+            <button onClick={()=>importRef.current?.click()} style={{padding:"12px",borderRadius:8,border:"1px solid #60a5fa",
+              background:"#0a1020",color:"#60a5fa",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:700,textAlign:"left"}}>
+              ⬆️ Восстановить из файла (JSON)
+            </button>
+            <button onClick={handleICS} style={{padding:"12px",borderRadius:8,border:"1px solid #4fc3f7",
+              background:"#091418",color:"#4fc3f7",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:700,textAlign:"left"}}>
+              📆 Экспорт в Google Calendar (.ics)
+            </button>
+          </div>
+          <div style={{marginTop:16,padding:"10px 12px",background:"#0d0d0d",borderRadius:8,border:"1px solid #222",fontSize:10,color:"#555",lineHeight:1.7}}>
+            В будущем здесь появится вход через Google аккаунт для синхронизации данных между устройствами.
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1349,7 +1389,7 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
 }
 
 // ─── ReportsView ─────────────────────────────────────────────────────────────
-function ReportsView({priorities,clientPriority,setClientPriority,showBooked,setShowBooked,selPeriod,setSelPeriod,clientTextForPriority,bookedText,days,showAmounts}){
+function ReportsView({priorities,clientPriority,setClientPriority,showBooked,setShowBooked,selPeriod,setSelPeriod,clientTextForPriority,bookedText,days,showAmounts,writtenOff,onWriteOff,weeks,pastWKs,handleBackup,handleICS,importRef,backupMsg,setView}){
   const [section,setSection]=useState("client"); // "client" | "personal"
 
   const BOOKED_PERIODS=[
@@ -1380,8 +1420,8 @@ function ReportsView({priorities,clientPriority,setClientPriority,showBooked,set
       <div style={{fontSize:14,fontWeight:700,color:"#f0f0ec",marginBottom:4}}>Отчёты / Прогнозы</div>
 
       {/* Section tabs */}
-      <div style={{display:"flex",gap:6,marginBottom:18}}>
-        {[["client","👤 Для клиента","#60a5fa"],["personal","🔒 Личное","#a78bfa"]].map(([s,lbl,clr])=>(
+      <div style={{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}}>
+        {[["client","👤 Клиенту","#60a5fa"],["personal","🔒 Личное","#a78bfa"],["finance","💶 Финансы","#fbbf24"],["archive","🗄 Архив","#a78bfa"]].map(([s,lbl,clr])=>(
           <button key={s} onClick={()=>setSection(s)} style={{
             flex:1,padding:"9px",borderRadius:8,fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
             border:`2px solid ${section===s?clr:"#222"}`,
@@ -1433,6 +1473,50 @@ function ReportsView({priorities,clientPriority,setClientPriority,showBooked,set
       {section==="personal"&&(
         <PersonalReport days={days} priorities={priorities} clientTextForPriority={clientTextForPriority} showAmounts={showAmounts}/>
       )}
+
+      {/* ── FINANCE ── */}
+      {section==="finance"&&(
+        <FinanceView days={days} priorities={priorities} writtenOff={writtenOff||{}} onWriteOff={()=>{}} showAmounts={showAmounts} setShowAmounts={()=>{}}/>
+      )}
+
+      {/* ── ARCHIVE ── */}
+      {section==="archive"&&weeks&&(
+        <ArchiveView pastWKs={pastWKs} renderWeek={()=>null} weeksAgo={()=>0} parseWK={parseWK}/>
+      )}
+    </div>
+  );
+}
+
+function FinanceViewInner({days, priorities}){
+  // Lightweight finance summary inside Reports
+  const today=new Date(); today.setHours(0,0,0,0);
+  const allBookings=[];
+  Object.entries(days).forEach(([dk,d])=>{
+    (d.bookings||[]).forEach(b=>{
+      if(b.type!=="commercial") return;
+      allBookings.push({...b,date:parseLocalDate(dk)});
+    });
+  });
+  const unpaid=allBookings.filter(b=>!b.paid);
+  const overdue=unpaid.filter(b=>b.date<today);
+  const upcoming=unpaid.filter(b=>b.date>=today);
+  const fmt=n=>Number(n).toLocaleString("ru-RU")+" €";
+  const sum=arr=>arr.reduce((s,b)=>s+parseFloat(b.amount||0),0);
+  return(
+    <div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+        <div style={{background:"#1a0000",border:"1px solid #ef444455",borderRadius:9,padding:"10px 12px"}}>
+          <div style={{fontSize:9,color:"#ef4444",marginBottom:3,textTransform:"uppercase"}}>⚠ Просрочено</div>
+          <div style={{fontSize:20,fontWeight:700,color:"#ef4444"}}>{fmt(sum(overdue))}</div>
+          <div style={{fontSize:9,color:"#666",marginTop:2}}>{overdue.length} заданий</div>
+        </div>
+        <div style={{background:"#001a0a",border:"1px solid #4ade8055",borderRadius:9,padding:"10px 12px"}}>
+          <div style={{fontSize:9,color:"#4ade80",marginBottom:3,textTransform:"uppercase"}}>📅 Предстоит</div>
+          <div style={{fontSize:20,fontWeight:700,color:"#4ade80"}}>{fmt(sum(upcoming))}</div>
+          <div style={{fontSize:9,color:"#666",marginTop:2}}>{upcoming.length} заданий</div>
+        </div>
+      </div>
+      <div style={{fontSize:10,color:"#555",textAlign:"center"}}>Полная финансовая статистика — в ⚙️ → Финансы</div>
     </div>
   );
 }
@@ -2241,7 +2325,7 @@ function FinanceView({days, priorities, writtenOff, onWriteOff, showAmounts, set
 }
 
 // ─── AddWeekModal ─────────────────────────────────────────────────────────────
-function AddWeekModal({existingWKs,onAdd,onClose}){
+function AddWeekModal({existingWKs,onAdd,onClose,inline=false}){
   const today=new Date(); today.setHours(0,0,0,0);
   const start=getMonday(today);
   const [direction,setDirection]=useState("future"); // "future" | "past"
@@ -2260,7 +2344,7 @@ function AddWeekModal({existingWKs,onAdd,onClose}){
   const byYear={}; sortedKeys.forEach(k=>{const yr=k.split("-")[0];if(!byYear[yr])byYear[yr]=[];byYear[yr].push(k);});
   const[open,setOpen]=useState(sortedKeys[0]);
 
-  return <Overlay><MB style={{maxHeight:"88vh",overflowY:"auto",padding:"16px 13px"}}>
+  const Inner=(<div style={{maxHeight:"70vh",overflowY:"auto",padding:"4px 0"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
       <ML>Добавить неделю</ML>
       <button onClick={onClose} style={bSty("#999","#222")}>✕</button>
@@ -2299,7 +2383,7 @@ function AddWeekModal({existingWKs,onAdd,onClose}){
         })}
       </div>
     ))}
-  </MB></Overlay>;
+  </div>); return inline?Inner:<Overlay><MB style={{maxHeight:"88vh",overflowY:"auto",padding:"16px 13px"}}>{Inner}</MB></Overlay>;
 }
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
