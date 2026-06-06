@@ -353,11 +353,18 @@ export default function App(){
   const addDeadlineForBooking=(dk,booking,customDays=null)=>{
     const p=priorities[booking.priority];
     if(!p||!p.name||p.hasDue===false) return null;
-    const baseDays=customDays!==null?customDays:(p.dueAfterDays||7);
-    // Non-commercial gets +5 days extra
-    const days=booking.type===BT.NONCOMMERCIAL?baseDays+5:baseDays;
-    const bookDate=parseLocalDate(dk);
-    const dueDate=new Date(bookDate); dueDate.setDate(dueDate.getDate()+days);
+    // customDueDate takes priority, then dueOffset, then default days
+    let dueDate;
+    if(booking._customDueDate){
+      dueDate=parseLocalDate(booking._customDueDate);
+    } else {
+      const baseDays=customDays!==null?customDays:(p.dueAfterDays||7);
+      const extra=booking.type===BT.NONCOMMERCIAL?5:0;
+      const offset=booking._dueOffset||0;
+      const days=baseDays+extra+offset;
+      const bookDate=parseLocalDate(dk);
+      dueDate=new Date(bookDate); dueDate.setDate(dueDate.getDate()+days);
+    }
     const label=`${p.dueLabel||"Сдать"}: ${p.name}${booking.client?" ("+booking.client+")":""}`;
     const newDl={
       id:`dl_${booking.id}`,
@@ -841,7 +848,7 @@ export default function App(){
       )}
 
       {view==="settings"&&(
-        <PrioritySettings priorities={priorities} onChange={setPriorities} onClose={()=>setView("schedule")}/>
+        <PrioritySettings priorities={priorities} onChange={setPriorities} onClose={()=>setView("schedule")} days={days} deadlines={deadlines} setDeadlines={setDeadlines}/>
       )}
 
       {view==="schedule"&&(
@@ -908,7 +915,7 @@ export default function App(){
 }
 
 // ─── PrioritySettings ─────────────────────────────────────────────────────────
-function PrioritySettings({priorities, onChange, onClose}){
+function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDeadlines}){
   const [local,setLocal] = useState(()=>JSON.parse(JSON.stringify(priorities)));
   const [saved,setSaved] = useState(false);
 
@@ -925,9 +932,43 @@ function PrioritySettings({priorities, onChange, onClose}){
       <div style={{fontSize:11,color:"#e8e8e0",letterSpacing:3,textTransform:"uppercase",marginBottom:16}}>
         НАСТРОЙКИ ПРИОРИТЕТОВ
       </div>
-      <div style={{fontSize:11,color:"#aaa",marginBottom:16,lineHeight:1.6}}>
+      <div style={{fontSize:11,color:"#aaa",marginBottom:12,lineHeight:1.6}}>
         Задай название, лимит, коммерция и срок сдачи. Пустое название — приоритет скрыт.
       </div>
+      {/* Generate missing deadlines for existing bookings */}
+      {days&&setDeadlines&&(
+        <button onClick={()=>{
+          const today=new Date(); today.setHours(0,0,0,0);
+          let added=0;
+          const newDls=[...deadlines];
+          Object.entries(days).forEach(([dk,d])=>{
+            (d.bookings||[]).forEach(b=>{
+              const p=priorities[b.priority];
+              if(!p||!p.name||p.hasDue===false) return;
+              // Skip if deadline already exists
+              if(newDls.some(dl=>dl.bookingId===b.id)) return;
+              const baseDays=p.dueAfterDays||7;
+              const extra=b.type===BT.NONCOMMERCIAL?5:0;
+              const days2=baseDays+extra;
+              const bookDate=parseLocalDate(dk);
+              const dueDate=new Date(bookDate); dueDate.setDate(dueDate.getDate()+days2);
+              newDls.push({
+                id:`dl_${b.id}`,bookingId:b.id,
+                label:`${p.dueLabel||"Сдать"}: ${p.name}${b.client?" ("+b.client+")":""}`,
+                date:dateKey(dueDate),color:p.color||"#4ade80",
+                progress:0,done:false,manual:false,
+              });
+              added++;
+            });
+          });
+          setDeadlines(newDls);
+          alert(`Создано ${added} дедлайнов для существующих заданий`);
+        }} style={{
+          width:"100%",padding:"9px",borderRadius:7,marginBottom:14,
+          border:"1px solid #f97316",background:"#1a0900",
+          color:"#f97316",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+        }}>⚡ Создать дедлайны для существующих заданий</button>
+      )}
 
       {PRIORITY_KEYS.slice(0,visibleCount).map(pk=>{
         const p=local[pk];
@@ -1535,10 +1576,15 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
   const avPriorities=availablePriorities(wk,days,priorities);
   const activePriorities=PRIORITY_KEYS.filter(pk=>priorities[pk]?.name);
 
-  const startAdd=()=>setAddForm({priority:avPriorities[0]||PRIORITY_KEYS[0],type:BT.COMMERCIAL,client:"",paid:false,amount:"",note:"",allDay:false,timeStart:"",timeEnd:"",location:"",reminders:[]});
+  const startAdd=()=>setAddForm({priority:avPriorities[0]||PRIORITY_KEYS[0],type:BT.COMMERCIAL,client:"",paid:false,amount:"",note:"",allDay:false,timeStart:"",timeEnd:"",location:"",reminders:[],dueOffset:0,customDueDate:""});
   const confirmAdd=()=>{
     if(!addForm) return;
-    onAddBooking(dk,{id:Date.now().toString(),...addForm,client:addForm.client.trim(),note:addForm.note.trim()},wk);
+    const bookingId=Date.now().toString();
+    const booking={id:bookingId,...addForm,client:addForm.client.trim(),note:addForm.note.trim()};
+    // Store custom due info on booking for later deadline creation
+    if(addForm.customDueDate) booking._customDueDate=addForm.customDueDate;
+    if(addForm.dueOffset) booking._dueOffset=addForm.dueOffset;
+    onAddBooking(dk,booking,wk);
     setAddForm(null);
   };
   const startEdit=(b)=>{ setEditId(b.id); setEditForm({...b}); };
@@ -1742,6 +1788,53 @@ function BookingEditCard({b, ef, setEf, priorities, activePriorities, knownClien
   );
 }
 
+function DeadlinePreview({priority:p, type, dk, dueOffset, customDueDate, onOffsetChange, onCustomDate, onClearCustom}){
+  if(!p||!p.name||!dk||p.hasDue===false) return null;
+  const base=p.dueAfterDays||7;
+  const extra=type===BT.NONCOMMERCIAL?5:0;
+  const total=base+extra+dueOffset;
+  const bookDate=parseLocalDate(dk);
+  let displayDate;
+  if(customDueDate){
+    displayDate=parseLocalDate(customDueDate);
+  } else {
+    displayDate=new Date(bookDate); displayDate.setDate(displayDate.getDate()+total);
+  }
+  const displayStr=displayDate.toLocaleDateString("ru-RU",{day:"numeric",month:"long"});
+  return(
+    <div style={{marginBottom:10,padding:"10px 12px",borderRadius:8,
+      background:`${p.color}10`,border:`1px solid ${p.color}44`}}>
+      <div style={{fontSize:10,color:"#aaa",marginBottom:8}}>
+        📋 {p.dueLabel||"Сдать"} — срок сдачи:
+        {extra>0&&<span style={{color:"#888",marginLeft:5}}>(+{extra} дн. некоммерч.)</span>}
+      </div>
+      {!customDueDate&&(
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+          <button onClick={()=>onOffsetChange(dueOffset-1)}
+            style={{padding:"4px 14px",borderRadius:6,border:"1px solid #777",background:"#222",
+              color:"#fff",fontSize:16,cursor:"pointer",fontWeight:900,fontFamily:"inherit"}}>−</button>
+          <span style={{fontSize:13,color:p.color,fontWeight:700,flex:1,textAlign:"center"}}>{displayStr}</span>
+          <button onClick={()=>onOffsetChange(dueOffset+1)}
+            style={{padding:"4px 14px",borderRadius:6,border:"1px solid #777",background:"#222",
+              color:"#fff",fontSize:16,cursor:"pointer",fontWeight:900,fontFamily:"inherit"}}>+</button>
+        </div>
+      )}
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:10,color:"#666",flexShrink:0}}>Точная дата:</span>
+        <input type="date" value={customDueDate}
+          onChange={e=>onCustomDate(e.target.value)}
+          style={{flex:1,padding:"5px 8px",background:"#111",border:"1px solid #333",
+            borderRadius:6,color:"#e0e0d8",fontSize:11,fontFamily:"inherit",outline:"none",colorScheme:"dark"}}/>
+        {customDueDate&&(
+          <button onClick={onClearCustom}
+            style={{padding:"3px 8px",borderRadius:5,border:"1px solid #333",
+              background:"transparent",color:"#888",cursor:"pointer",fontFamily:"inherit",fontSize:10}}>✕</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, priorities, knownClients, dk, onConfirm, onCancel}){
   return(
     <div style={{border:"1px solid #2a2a2a",borderRadius:9,padding:"10px 12px",marginBottom:12,background:"#111"}}>
@@ -1832,26 +1925,16 @@ function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, pr
         </div>
       )}
       {/* Deadline preview */}
-      {(()=>{
-        const p=priorities[addForm.priority];
-        if(!p||!p.name||!dk) return null;
-        const base=p.dueAfterDays||7;
-        const extra=addForm.type===BT.NONCOMMERCIAL?5:0;
-        const total=base+extra;
-        const dueDate=new Date(parseLocalDate(dk)); dueDate.setDate(dueDate.getDate()+total);
-        return(
-          <div style={{marginBottom:10,padding:"8px 10px",borderRadius:7,
-            background:`${p.color}10`,border:`1px solid ${p.color}33`}}>
-            <div style={{fontSize:10,color:"#aaa",marginBottom:4}}>
-              📋 Дедлайн сдачи (можно изменить после добавления):
-            </div>
-            <div style={{fontSize:12,color:p.color,fontWeight:700}}>
-              {p.dueLabel||"Сдать"}: {dueDate.toLocaleDateString("ru-RU",{day:"numeric",month:"long"})}
-              {extra>0&&<span style={{fontSize:10,color:"#888",marginLeft:6}}>(+{extra} дн. некоммерч.)</span>}
-            </div>
-          </div>
-        );
-      })()}
+      <DeadlinePreview
+        priority={priorities[addForm.priority]}
+        type={addForm.type}
+        dk={dk}
+        dueOffset={addForm.dueOffset||0}
+        customDueDate={addForm.customDueDate||""}
+        onOffsetChange={v=>setAddForm(f=>({...f,dueOffset:v}))}
+        onCustomDate={v=>setAddForm(f=>({...f,customDueDate:v,dueOffset:0}))}
+        onClearCustom={()=>setAddForm(f=>({...f,customDueDate:"",dueOffset:0}))}
+      />
       <Row>
         <Btn onClick={onCancel} c="#ccc" b="#222" bg="transparent">Отмена</Btn>
         <Btn onClick={onConfirm} c="#e0e0d8" b="#bbb" bg="#1a1a1a" bold>Добавить</Btn>
