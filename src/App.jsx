@@ -47,8 +47,9 @@ function useScale(){
     window.addEventListener("resize",h);
     return ()=>window.removeEventListener("resize",h);
   },[]);
-  if(w>=1200) return 1.5;
-  if(w>=768)  return 1.2;
+  // Only scale font on desktop, no zoom (zoom breaks mobile)
+  if(w>=1200) return 1.3;
+  if(w>=768)  return 1.15;
   return 1;
 }
 
@@ -175,6 +176,7 @@ const REMINDER_KEY="schedule_last_export";
 const CHECK_KEY="schedule_last_check";
 const GCAL_KEY="schedule_last_gcal_sync";
 const DEADLINES_KEY="schedule_deadlines_v1";
+const STORAGE_REMIND_KEY="schedule_storage_reminders_v1";
 const PRIORITIES_KEY="schedule_priorities_v2";
 const WEEKS_KEY="schedule_weeks_v1";
 const DAYS_KEY="schedule_days_v1";
@@ -198,6 +200,11 @@ export default function App(){
   const [showReminder,setShowReminder]     = useState(false);
   const [showCheckReminder,setShowCheckReminder] = useState(false);
   const [showGcalReminder,setShowGcalReminder] = useState(false);
+  // storageReminders: { [bookingId]: { bookingId, dk, client, label, createdAt, done } }
+  const [storageReminders,setStorageReminders] = useState(()=>{
+    try{ const s=getLS(STORAGE_REMIND_KEY); if(s) return JSON.parse(s); }catch{}
+    return {};
+  });
   // deadlines: auto-generated + manual { id, bookingId?, label, date, color, progress, done, manual? }
   const [deadlines,setDeadlines] = useState(()=>{
     try{ const s=getLS(DEADLINES_KEY); if(s) return JSON.parse(s); }catch{}
@@ -246,7 +253,31 @@ export default function App(){
     const timer=setInterval(checkDeadlines,12*60*60*1000); // every 12 hours
     return()=>clearInterval(timer);
   },[deadlines]);
+
+  // Storage reminders — check every 24h after shooting day
+  useEffect(()=>{
+    const checkStorage=()=>{
+      const now=new Date(); const today=new Date(); today.setHours(0,0,0,0);
+      Object.values(storageReminders).forEach(r=>{
+        if(r.done) return;
+        const shootDay=parseLocalDate(r.dk);
+        if(today<=shootDay) return; // shooting day not passed yet
+        if("Notification" in window&&Notification.permission==="granted"){
+          new Notification("💾 Не забудь сбросить материал!",{
+            body:r.label,
+            icon:"/favicon.ico",
+          });
+        }
+      });
+    };
+    if(Object.values(storageReminders).some(r=>!r.done)){
+      checkStorage();
+      const timer=setInterval(checkStorage,24*60*60*1000);
+      return()=>clearInterval(timer);
+    }
+  },[storageReminders]);
   useEffect(()=>{ setLS(DEADLINES_KEY, JSON.stringify(deadlines)); },[deadlines]);
+  useEffect(()=>{ setLS(STORAGE_REMIND_KEY, JSON.stringify(storageReminders)); },[storageReminders]);
 
   // Load from Supabase on mount
   useEffect(()=>{
@@ -386,6 +417,14 @@ export default function App(){
     setDays(p=>({...p,[dk]:{...(p[dk]||{}),status:undefined,bookings:[...(p[dk]?.bookings||[]),booking]}}));
     // Auto-create deadline
     addDeadlineForBooking(dk,booking);
+    // Auto-create storage reminder if requested
+    if(booking.saveStorage){
+      setStorageReminders(prev=>({...prev,[booking.id]:{
+        bookingId:booking.id, dk,
+        label:`Сбросить материал: ${booking.client||priorities[booking.priority]?.name||"съёмка"}`,
+        createdAt:new Date().toISOString(), done:false,
+      }}));
+    }
 
     // 2. After booking: count booked days + open days in this week, close one open day if booked>=3
     if(!wk) return;
@@ -439,6 +478,8 @@ export default function App(){
     });
     // Auto-delete associated deadline
     setDeadlines(p=>p.filter(d=>d.bookingId!==id));
+    // Auto-delete storage reminder
+    setStorageReminders(prev=>{ const n={...prev}; delete n[id]; return n; });
   };
 
 
@@ -715,7 +756,7 @@ export default function App(){
   };
 
   return(
-    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none",fontSize:`${Math.round(scale*14)}px`,zoom:scale>=1.5?1.4:scale>=1.2?1.2:1}}>
+    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none",fontSize:`${Math.round(scale*14)}px`}}>
 
       {/* HEADER */}
       <div style={{borderBottom:"1px solid #1e1e1e",padding:"13px 14px 10px",position:"sticky",top:0,
@@ -793,6 +834,33 @@ export default function App(){
         </div>
       )}
 
+      {/* STORAGE REMINDERS BANNER */}
+      {Object.values(storageReminders).filter(r=>!r.done).map(r=>{
+        const shootDay=parseLocalDate(r.dk);
+        const today=new Date(); today.setHours(0,0,0,0);
+        if(shootDay>=today) return null; // not yet
+        const hoursAgo=Math.round((Date.now()-new Date(r.createdAt).getTime())/(3600*1000));
+        return(
+          <div key={r.bookingId} style={{background:"#0a1020",borderBottom:"1px solid #1a3060",
+            padding:"9px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <div style={{fontSize:12,color:"#60a5fa"}}>
+              💾 {r.label}
+              <span style={{fontSize:10,color:"#555",marginLeft:8}}>({hoursAgo}ч назад)</span>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>setStorageReminders(p=>({...p,[r.bookingId]:{...p[r.bookingId],done:true}}))} style={{
+                padding:"4px 12px",borderRadius:5,border:"1px solid #4ade80",
+                background:"#0d1f14",color:"#4ade80",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+              }}>✓ Сброшено</button>
+              <button onClick={()=>setStorageReminders(p=>{ const n={...p}; delete n[r.bookingId]; return n; })} style={{
+                padding:"4px 8px",borderRadius:5,border:"1px solid #222",
+                background:"transparent",color:"#555",fontSize:10,cursor:"pointer",fontFamily:"inherit",
+              }}>✕</button>
+            </div>
+          </div>
+        );
+      })}
+
       {/* GCAL REMINDER */}
       {showGcalReminder&&(
         <div style={{background:"#0a1520",borderBottom:"1px solid #1a3a5a",padding:"9px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
@@ -863,7 +931,7 @@ export default function App(){
         <DeadlinesView deadlines={deadlines} setDeadlines={setDeadlines} priorities={priorities} days={days}/>
       )}
       {view==="progress"&&(
-        <ProgressView deadlines={deadlines} setDeadlines={setDeadlines}/>
+        <ProgressView deadlines={deadlines} setDeadlines={setDeadlines} days={days}/>
       )}
       {view==="finance"&&(
         <FinanceView days={days} priorities={priorities} writtenOff={writtenOff} onWriteOff={setWrittenOff} showAmounts={showAmounts} setShowAmounts={setShowAmounts}/>
@@ -1577,7 +1645,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
   const avPriorities=availablePriorities(wk,days,priorities);
   const activePriorities=PRIORITY_KEYS.filter(pk=>priorities[pk]?.name);
 
-  const startAdd=()=>setAddForm({priority:avPriorities[0]||PRIORITY_KEYS[0],type:BT.COMMERCIAL,client:"",paid:false,amount:"",note:"",allDay:false,timeStart:"",timeEnd:"",location:"",reminders:[],dueOffset:0,customDueDate:""});
+  const startAdd=()=>setAddForm({priority:avPriorities[0]||PRIORITY_KEYS[0],type:BT.COMMERCIAL,client:"",paid:false,amount:"",note:"",allDay:false,timeStart:"",timeEnd:"",location:"",reminders:[],dueOffset:0,customDueDate:"",saveStorage:false});
   const confirmAdd=()=>{
     if(!addForm) return;
     const bookingId=Date.now().toString();
@@ -2515,10 +2583,11 @@ function DeadlinesView({deadlines, setDeadlines, priorities, days}){
 }
 
 // ─── ProgressView ─────────────────────────────────────────────────────────────
-function ProgressView({deadlines, setDeadlines}){
+function ProgressView({deadlines, setDeadlines, days}){
   const [editingId,setEditingId]=useState(null);
   const active=deadlines.filter(d=>!d.done).sort((a,b)=>a.date.localeCompare(b.date));
   const done=deadlines.filter(d=>d.done);
+  const today=new Date(); today.setHours(0,0,0,0);
 
   const setProgress=(id,val)=>setDeadlines(p=>p.map(d=>d.id===id?{...d,progress:Math.max(0,Math.min(100,val)),done:val>=100}:d));
 
@@ -2532,50 +2601,99 @@ function ProgressView({deadlines, setDeadlines}){
 
       {active.map(d=>{
         const dt=parseLocalDate(d.date);
-        const today=new Date(); today.setHours(0,0,0,0);
         const daysLeft=Math.round((dt-today)/(24*3600*1000));
         const isEditing=editingId===d.id;
+        const isOverdue=daysLeft<0;
+        const isUrgent=daysLeft>=0&&daysLeft<=3;
+        const borderColor=isOverdue?"#ef444466":isUrgent?"#fbbf2466":`${d.color}44`;
+        const bg=isOverdue?"#130808":isUrgent?"#1a1500":`${d.color}08`;
+
+        // Find booking info
+        const booking=d.bookingDk&&days?
+          (days[d.bookingDk]?.bookings||[]).find(b=>b.id===d.bookingId):null;
+
         return(
           <div key={d.id} onClick={()=>setEditingId(isEditing?null:d.id)}
-            style={{padding:"12px 14px",borderRadius:9,marginBottom:8,cursor:"pointer",
-              border:`1px solid ${d.color}55`,background:`${d.color}08`,
-              transition:"all .15s",
-            }}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-              <span style={{fontSize:13,color:"#e8e8e0",fontWeight:600}}>{d.label}</span>
-              <span style={{fontSize:10,color:daysLeft<0?"#ef4444":daysLeft<=3?"#fbbf24":"#aaa"}}>
-                {daysLeft<0?`просрочено ${Math.abs(daysLeft)}д`:daysLeft===0?"сегодня":daysLeft===1?"завтра":`${daysLeft} дн.`}
-              </span>
+            style={{padding:"12px 14px",borderRadius:9,marginBottom:10,cursor:"pointer",
+              border:`1px solid ${borderColor}`,background:bg,transition:"all .15s"}}>
+
+            {/* Header row */}
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:6}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                  <div style={{width:8,height:8,borderRadius:2,background:d.color,flexShrink:0}}/>
+                  <span style={{fontSize:13,color:"#e8e8e0",fontWeight:700,lineHeight:1.3}}>{d.label}</span>
+                </div>
+                {/* Meta info always visible */}
+                <div style={{display:"flex",flexWrap:"wrap",gap:10,fontSize:10}}>
+                  {d.bookingDk&&(
+                    <span style={{color:"#aaa"}}>
+                      📅 Съёмка: {parseLocalDate(d.bookingDk).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}
+                    </span>
+                  )}
+                  <span style={{color:"#aaa"}}>
+                    ⏰ Сдать: {dt.toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}
+                  </span>
+                  {booking?.location&&<span style={{color:"#888"}}>📍 {booking.location}</span>}
+                </div>
+              </div>
+              {/* Days left badge */}
+              <div style={{
+                padding:"4px 10px",borderRadius:20,flexShrink:0,
+                background:isOverdue?"#ef444422":isUrgent?"#fbbf2422":"#1a1a1a",
+                border:`1px solid ${isOverdue?"#ef4444":isUrgent?"#fbbf24":"#333"}`,
+              }}>
+                <span style={{fontSize:11,fontWeight:700,
+                  color:isOverdue?"#ef4444":isUrgent?"#fbbf24":"#aaa"}}>
+                  {isOverdue?`−${Math.abs(daysLeft)}д`:daysLeft===0?"сегодня":daysLeft===1?"завтра":`+${daysLeft}д`}
+                </span>
+              </div>
             </div>
-            {/* Big progress bar */}
-            <div style={{height:12,borderRadius:6,background:"#222",overflow:"hidden",marginBottom:isEditing?10:0}}>
-              <div style={{height:"100%",borderRadius:6,background:d.color,
+
+            {/* Progress bar */}
+            <div style={{height:10,borderRadius:5,background:"#1e1e1e",overflow:"hidden",marginBottom:4}}>
+              <div style={{height:"100%",borderRadius:5,
+                background:isOverdue?"#ef4444":isUrgent?"#fbbf24":d.color,
                 width:`${d.progress||0}%`,transition:"width .3s"}}/>
             </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:isEditing?10:0}}>
+              <span style={{fontSize:9,color:"#555"}}>0%</span>
+              <span style={{fontSize:10,color:isOverdue?"#ef4444":isUrgent?"#fbbf24":d.color,fontWeight:700}}>{d.progress||0}%</span>
+              <span style={{fontSize:9,color:"#555"}}>100%</span>
+            </div>
+
+            {/* Notes/comment from booking */}
+            {booking?.note&&(
+              <div style={{fontSize:10,color:"#888",fontStyle:"italic",marginTop:4,
+                paddingTop:4,borderTop:"1px solid #1e1e1e"}}>
+                💬 {booking.note}
+              </div>
+            )}
+
+            {/* Expanded editor */}
             {isEditing&&(
-              <div>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-                  <span style={{fontSize:11,color:"#aaa"}}>Прогресс: {d.progress||0}%</span>
-                  <span style={{fontSize:11,color:d.color,fontWeight:700}}>{d.progress>=100?"✓ Готово":""}</span>
-                </div>
+              <div style={{marginTop:10}} onClick={e=>e.stopPropagation()}>
                 <input type="range" min="0" max="100" value={d.progress||0}
-                  onChange={e=>{e.stopPropagation();setProgress(d.id,parseInt(e.target.value));}}
-                  onClick={e=>e.stopPropagation()}
-                  style={{width:"100%",accentColor:d.color,marginBottom:8}}/>
-                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  onChange={e=>setProgress(d.id,parseInt(e.target.value))}
+                  style={{width:"100%",accentColor:isOverdue?"#ef4444":isUrgent?"#fbbf24":d.color,marginBottom:8}}/>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                   {[0,25,50,75,100].map(v=>(
-                    <button key={v} onClick={e=>{e.stopPropagation();setProgress(d.id,v);}}
-                      style={{padding:"4px 10px",borderRadius:5,fontSize:10,cursor:"pointer",fontFamily:"inherit",
-                        border:`1px solid ${d.progress===v?d.color:"#333"}`,
-                        background:d.progress===v?`${d.color}20`:"transparent",
-                        color:d.progress===v?d.color:"#888",
+                    <button key={v} onClick={()=>setProgress(d.id,v)}
+                      style={{flex:1,padding:"6px 4px",borderRadius:5,fontSize:11,cursor:"pointer",fontFamily:"inherit",
+                        border:`1px solid ${(d.progress||0)===v?d.color:"#333"}`,
+                        background:(d.progress||0)===v?`${d.color}20`:"transparent",
+                        color:(d.progress||0)===v?d.color:"#888",fontWeight:(d.progress||0)===v?700:400,
                       }}>{v}%</button>
                   ))}
                 </div>
+                {booking&&(
+                  <div style={{marginTop:10,padding:"8px 10px",background:"#111",borderRadius:7,fontSize:10,color:"#aaa",lineHeight:1.7}}>
+                    {booking.client&&<div>👤 {booking.client}</div>}
+                    {booking.amount&&<div>💶 {parseFloat(booking.amount).toLocaleString("ru-RU")} € · <span style={{color:booking.paid?"#4ade80":"#ef4444"}}>{booking.paid?"Оплачено":"Не оплачено"}</span></div>}
+                    {booking.timeStart&&<div>🕐 {booking.allDay?"Весь день":booking.timeStart+(booking.timeEnd?" – "+booking.timeEnd:"")}</div>}
+                  </div>
+                )}
               </div>
-            )}
-            {!isEditing&&(
-              <div style={{textAlign:"right",fontSize:10,color:d.color,fontWeight:700,marginTop:2}}>{d.progress||0}%</div>
             )}
           </div>
         );
@@ -2583,16 +2701,25 @@ function ProgressView({deadlines, setDeadlines}){
 
       {done.length>0&&(
         <div style={{marginTop:16}}>
-          <div style={{fontSize:9,color:"#555",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>— Выполненные —</div>
-          {done.map(d=>(
-            <div key={d.id} style={{padding:"8px 13px",borderRadius:8,marginBottom:5,
-              border:"1px solid #222",background:"#0a0a0a",opacity:0.5,
-              display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{fontSize:12,color:"#555",textDecoration:"line-through"}}>{d.label}</span>
-              <button onClick={()=>setDeadlines(p=>p.map(x=>x.id===d.id?{...x,done:false,progress:x.progress>=100?90:x.progress}:x))}
-                style={{...bSty("#888","#333"),fontSize:9}}>Вернуть</button>
-            </div>
-          ))}
+          <div style={{fontSize:9,color:"#555",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>✓ Выполненные ({done.length})</div>
+          {done.map(d=>{
+            const booking=d.bookingDk&&days?(days[d.bookingDk]?.bookings||[]).find(b=>b.id===d.bookingId):null;
+            return(
+              <div key={d.id} style={{padding:"9px 13px",borderRadius:8,marginBottom:5,
+                border:"1px solid #1e1e1e",background:"#0a0a0a",
+                display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:12,color:"#444",textDecoration:"line-through",marginBottom:2}}>{d.label}</div>
+                  {d.bookingDk&&<div style={{fontSize:9,color:"#333"}}>
+                    📅 {parseLocalDate(d.bookingDk).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}
+                    {" · "}⏰ {parseLocalDate(d.date).toLocaleDateString("ru-RU",{day:"numeric",month:"short"})}
+                  </div>}
+                </div>
+                <button onClick={()=>setDeadlines(p=>p.map(x=>x.id===d.id?{...x,done:false,progress:x.progress>=100?90:x.progress}:x))}
+                  style={{...bSty("#666","#333"),fontSize:9,flexShrink:0}}>Вернуть</button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
