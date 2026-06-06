@@ -6,7 +6,18 @@
     <title>Планировщик</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { background: #0a0a0a; }
+      body { background: #0a0a0a; font-size: 14px; }
+
+      /* Tablet */
+      @media (min-width: 768px) {
+        body { font-size: 18px; }
+      }
+
+      /* Desktop */
+      @media (min-width: 1200px) {
+        body { font-size: 22px; }
+        #root { max-width: 1000px; margin: 0 auto; }
+      }
     </style>
   </head>
   <body>
