@@ -63,16 +63,16 @@ const PRIORITY_KEYS = ["a","b","c","d","e","f","g","h","i","j"];
 
 // Default priority config
 const DEFAULT_PRIORITIES = {
-  a: { name:"", maxPerWeek:1, color:"#f87171", canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать" },
-  b: { name:"", maxPerWeek:1, color:"#fb923c", canBeCommercial:true , dueAfterDays:7, dueLabel:"Сдать"},
-  c: { name:"", maxPerWeek:2, color:"#facc15" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
-  d: { name:"", maxPerWeek:3, color:"#a3e635" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
-  e: { name:"", maxPerWeek:3, color:"#4ade80" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
-  f: { name:"", maxPerWeek:3, color:"#34d399" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
-  g: { name:"", maxPerWeek:3, color:"#22d3ee" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
-  h: { name:"", maxPerWeek:3, color:"#60a5fa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
-  i: { name:"", maxPerWeek:3, color:"#a78bfa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
-  j: { name:"", maxPerWeek:3, color:"#e879f9" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать"},
+  a: { name:"", maxPerWeek:1, color:"#f87171", canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true },
+  b: { name:"", maxPerWeek:1, color:"#fb923c", canBeCommercial:true , dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
+  c: { name:"", maxPerWeek:2, color:"#facc15" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
+  d: { name:"", maxPerWeek:3, color:"#a3e635" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
+  e: { name:"", maxPerWeek:3, color:"#4ade80" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
+  f: { name:"", maxPerWeek:3, color:"#34d399" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
+  g: { name:"", maxPerWeek:3, color:"#22d3ee" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
+  h: { name:"", maxPerWeek:3, color:"#60a5fa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
+  i: { name:"", maxPerWeek:3, color:"#a78bfa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
+  j: { name:"", maxPerWeek:3, color:"#e879f9" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
 };
 
 const BT = { COMMERCIAL:"commercial", NONCOMMERCIAL:"noncommercial" };
@@ -214,6 +214,38 @@ export default function App(){
 
   // Persist priorities
   useEffect(()=>{ setLS(PRIORITIES_KEY, JSON.stringify(priorities)); },[priorities]);
+
+  // Deadline reminder — check twice: on load and after 12h
+  useEffect(()=>{
+    const checkDeadlines=()=>{
+      const today=new Date(); today.setHours(0,0,0,0);
+      const urgent=deadlines.filter(d=>{
+        if(d.done) return false;
+        const dt=parseLocalDate(d.date);
+        const daysLeft=Math.round((dt-today)/(24*3600*1000));
+        return daysLeft>=0&&daysLeft<=3;
+      });
+      if(urgent.length>0&&"Notification" in window){
+        if(Notification.permission==="granted"){
+          urgent.forEach(d=>{
+            const dt=parseLocalDate(d.date);
+            const daysLeft=Math.round((dt-today)/(24*3600*1000));
+            new Notification("⏰ Дедлайн приближается",{
+              body:`${d.label} — ${daysLeft===0?"сегодня":daysLeft===1?"завтра":`через ${daysLeft} дн.`}`,
+              icon:"/favicon.ico",
+            });
+          });
+        } else if(Notification.permission!=="denied"){
+          Notification.requestPermission().then(perm=>{
+            if(perm==="granted") checkDeadlines();
+          });
+        }
+      }
+    };
+    checkDeadlines();
+    const timer=setInterval(checkDeadlines,12*60*60*1000); // every 12 hours
+    return()=>clearInterval(timer);
+  },[deadlines]);
   useEffect(()=>{ setLS(DEADLINES_KEY, JSON.stringify(deadlines)); },[deadlines]);
 
   // Load from Supabase on mount
@@ -318,10 +350,12 @@ export default function App(){
     else if(status===S.HIDDEN) setDays(p=>{const n={...p};delete n[dk];return n;});
   };
 
-  const addDeadlineForBooking=(dk,booking)=>{
+  const addDeadlineForBooking=(dk,booking,customDays=null)=>{
     const p=priorities[booking.priority];
-    if(!p||!p.name) return;
-    const days=p.dueAfterDays||7;
+    if(!p||!p.name||p.hasDue===false) return null;
+    const baseDays=customDays!==null?customDays:(p.dueAfterDays||7);
+    // Non-commercial gets +5 days extra
+    const days=booking.type===BT.NONCOMMERCIAL?baseDays+5:baseDays;
     const bookDate=parseLocalDate(dk);
     const dueDate=new Date(bookDate); dueDate.setDate(dueDate.getDate()+days);
     const label=`${p.dueLabel||"Сдать"}: ${p.name}${booking.client?" ("+booking.client+")":""}`;
@@ -336,6 +370,7 @@ export default function App(){
       manual:false,
     };
     setDeadlines(prev=>[...prev.filter(d=>d.bookingId!==booking.id),newDl]);
+    return newDl;
   };
 
   const addBooking=(dk,booking,wk)=>{
@@ -389,10 +424,14 @@ export default function App(){
     const cur=p[dk]||{};
     return{...p,[dk]:{...cur,bookings:(cur.bookings||[]).map(b=>b.id===id?{...b,...changes}:b)}};
   });
-  const removeBooking=(dk,id)=>setDays(p=>{
-    const cur=p[dk]||{};
-    return{...p,[dk]:{...cur,bookings:(cur.bookings||[]).filter(b=>b.id!==id)}};
-  });
+  const removeBooking=(dk,id)=>{
+    setDays(p=>{
+      const cur=p[dk]||{};
+      return{...p,[dk]:{...cur,bookings:(cur.bookings||[]).filter(b=>b.id!==id)}};
+    });
+    // Auto-delete associated deadline
+    setDeadlines(p=>p.filter(d=>d.bookingId!==id));
+  };
 
 
   const [backupMsg,setBackupMsg]=useState(""); // "saved" | "restored" | "error"
@@ -879,22 +918,23 @@ function PrioritySettings({priorities, onChange, onClose}){
   };
   const save=()=>{ onChange(local); setSaved(true); setTimeout(()=>{ setSaved(false); onClose(); },800); };
 
+  const [visibleCount,setVisibleCount]=useState(6);
+
   return(
     <div style={{padding:"14px 14px"}}>
       <div style={{fontSize:11,color:"#e8e8e0",letterSpacing:3,textTransform:"uppercase",marginBottom:16}}>
         НАСТРОЙКИ ПРИОРИТЕТОВ
       </div>
-      <div style={{fontSize:11,color:"#e8e8e0",marginBottom:16,lineHeight:1.6}}>
-        Задай название и максимальное количество заданий в неделю для каждого приоритета.<br/>
-        Пустое название — приоритет не используется.
+      <div style={{fontSize:11,color:"#aaa",marginBottom:16,lineHeight:1.6}}>
+        Задай название, лимит, коммерция и срок сдачи. Пустое название — приоритет скрыт.
       </div>
 
-      {PRIORITY_KEYS.map(pk=>{
+      {PRIORITY_KEYS.slice(0,visibleCount).map(pk=>{
         const p=local[pk];
         return(
           <div key={pk} style={{marginBottom:10,padding:"10px 12px",borderRadius:9,
             border:`1px solid ${p.color}33`,background:`${p.color}08`,
-            display:"grid",gridTemplateColumns:"20px 1fr 90px 60px 80px",gap:10,alignItems:"center"}}>
+            display:"grid",gridTemplateColumns:"20px 1fr 80px 50px 70px 90px",gap:8,alignItems:"center"}}>
             {/* Color dot + key */}
             <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
               <div style={{width:9,height:9,borderRadius:"50%",background:p.color}}/>
@@ -935,12 +975,49 @@ function PrioritySettings({priorities, onChange, onClose}){
                   borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
               </div>
             </div>
+            {/* Due after days + label */}
+            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+              {/* hasDue toggle */}
+              <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,cursor:"pointer"}}
+                onClick={()=>update(pk,"hasDue",!p.hasDue)}>
+                <div style={{width:28,height:16,borderRadius:8,transition:"all .2s",flexShrink:0,
+                  background:p.hasDue?"#f97316":"#333",position:"relative"}}>
+                  <div style={{position:"absolute",top:2,left:p.hasDue?13:2,width:12,height:12,
+                    borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+                </div>
+                <span style={{fontSize:8,color:p.hasDue?"#f97316":"#555",letterSpacing:1,textTransform:"uppercase"}}>
+                  {p.hasDue?"дедлайн":"без дедлайна"}
+                </span>
+              </div>
+              {p.hasDue&&<>
+              <div style={{fontSize:8,color:"#ddd",letterSpacing:1,textTransform:"uppercase",marginBottom:1}}>сдать через</div>
+              <div style={{display:"flex",alignItems:"center",gap:3}}>
+                <button onClick={()=>update(pk,"dueAfterDays",Math.max(1,(p.dueAfterDays||7)-1))}
+                  style={{...bSty("#ccc","#555"),padding:"1px 5px",fontSize:12}}>−</button>
+                <span style={{fontSize:12,color:p.color,fontWeight:700,minWidth:20,textAlign:"center"}}>{p.dueAfterDays||7}</span>
+                <button onClick={()=>update(pk,"dueAfterDays",(p.dueAfterDays||7)+1)}
+                  style={{...bSty("#ccc","#555"),padding:"1px 5px",fontSize:12}}>+</button>
+                <span style={{fontSize:9,color:"#888"}}>дн.</span>
+              </div>
+              <input value={p.dueLabel||"Сдать"} onChange={e=>update(pk,"dueLabel",e.target.value)}
+                placeholder="Сдать" style={{...inp,marginBottom:0,fontSize:10,padding:"3px 6px",
+                borderColor:"#333",width:"100%"}}/>
+              </>}
+            </div>
           </div>
         );
       })}
 
+      {visibleCount<PRIORITY_KEYS.length&&(
+        <button onClick={()=>setVisibleCount(v=>Math.min(v+1,PRIORITY_KEYS.length))} style={{
+          width:"100%",padding:"8px",borderRadius:7,marginBottom:10,
+          border:"1px dashed #444",background:"transparent",
+          color:"#888",fontSize:12,cursor:"pointer",fontFamily:"inherit",
+        }}>+ Добавить приоритет ({visibleCount}/{PRIORITY_KEYS.length})</button>
+      )}
+
       <button onClick={save} style={{
-        marginTop:14,width:"100%",padding:"10px",borderRadius:8,
+        marginTop:4,width:"100%",padding:"10px",borderRadius:8,
         border:`1px solid ${saved?"#4ade80":"#bbb"}`,
         background:saved?"#0d1f14":"#1a1a1a",
         color:saved?"#4ade80":"#e0e0d8",
@@ -1503,6 +1580,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
             addForm={addForm} setAddForm={setAddForm}
             activePriorities={activePriorities} avPriorities={avPriorities}
             priorities={priorities} knownClients={knownClients}
+            dk={dk}
             onConfirm={confirmAdd} onCancel={()=>setAddForm(null)}/>
         ):(
           bookings.length<3&&(
@@ -1664,7 +1742,7 @@ function BookingEditCard({b, ef, setEf, priorities, activePriorities, knownClien
   );
 }
 
-function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, priorities, knownClients, onConfirm, onCancel}){
+function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, priorities, knownClients, dk, onConfirm, onCancel}){
   return(
     <div style={{border:"1px solid #2a2a2a",borderRadius:9,padding:"10px 12px",marginBottom:12,background:"#111"}}>
       <ML>Новое задание</ML>
@@ -1753,6 +1831,27 @@ function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, pr
           </div>
         </div>
       )}
+      {/* Deadline preview */}
+      {(()=>{
+        const p=priorities[addForm.priority];
+        if(!p||!p.name||!dk) return null;
+        const base=p.dueAfterDays||7;
+        const extra=addForm.type===BT.NONCOMMERCIAL?5:0;
+        const total=base+extra;
+        const dueDate=new Date(parseLocalDate(dk)); dueDate.setDate(dueDate.getDate()+total);
+        return(
+          <div style={{marginBottom:10,padding:"8px 10px",borderRadius:7,
+            background:`${p.color}10`,border:`1px solid ${p.color}33`}}>
+            <div style={{fontSize:10,color:"#aaa",marginBottom:4}}>
+              📋 Дедлайн сдачи (можно изменить после добавления):
+            </div>
+            <div style={{fontSize:12,color:p.color,fontWeight:700}}>
+              {p.dueLabel||"Сдать"}: {dueDate.toLocaleDateString("ru-RU",{day:"numeric",month:"long"})}
+              {extra>0&&<span style={{fontSize:10,color:"#888",marginLeft:6}}>(+{extra} дн. некоммерч.)</span>}
+            </div>
+          </div>
+        );
+      })()}
       <Row>
         <Btn onClick={onCancel} c="#ccc" b="#222" bg="transparent">Отмена</Btn>
         <Btn onClick={onConfirm} c="#e0e0d8" b="#bbb" bg="#1a1a1a" bold>Добавить</Btn>
@@ -2168,13 +2267,20 @@ function DeadlinesView({deadlines, setDeadlines, priorities}){
                 color:isToday?"#4ade80":isSelected?"#f97316":"#aaa",marginBottom:2}}>
                 {day}
               </div>
-              {/* Deadline dots */}
+              {/* Deadline dots + progress */}
               {items.length>0&&(
                 <div style={{display:"flex",justifyContent:"center",gap:2,flexWrap:"wrap"}}>
                   {items.slice(0,3).map((d,di)=>(
                     <div key={di} style={{
                       width:6,height:6,borderRadius:"50%",
-                      background:d.done?"#333":d.color,
+                      background:(()=>{
+                        if(d.done) return "#333";
+                        const dl=Math.round((parseLocalDate(d.date)-today)/(24*3600*1000));
+                        if(dl<0) return "#ef4444";
+                        if(dl<=3) return "#fbbf24";
+                        if(dl<=7) return "#fb923c";
+                        return d.color;
+                      })(),
                       opacity:d.done?0.5:1,
                       outline:hasOverdue&&!d.done?"1px solid #ef4444":"none",
                       outlineOffset:1,
@@ -2182,6 +2288,16 @@ function DeadlinesView({deadlines, setDeadlines, priorities}){
                   ))}
                   {items.length>3&&<div style={{fontSize:7,color:"#666"}}>+{items.length-3}</div>}
                 </div>
+              )}
+              {/* Progress mini bar under dots */}
+              {items.length===1&&(items[0].progress||0)>0&&!items[0].done&&(
+                <div style={{marginTop:2,height:2,borderRadius:1,background:"#222",overflow:"hidden"}}>
+                  <div style={{height:"100%",borderRadius:1,
+                    background:items[0].color,width:`${items[0].progress}%`}}/>
+                </div>
+              )}
+              {items.length===1&&items[0].done&&(
+                <div style={{fontSize:6,color:"#4ade80",textAlign:"center",marginTop:1}}>✓</div>
               )}
             </div>
           );
@@ -2204,7 +2320,13 @@ function DeadlinesView({deadlines, setDeadlines, priorities}){
             return(
               <div key={d.id} style={{
                 padding:"10px 12px",borderRadius:8,marginBottom:7,
-                border:`1px solid ${d.done?"#222":`${d.color}55`}`,
+                border:(()=>{
+                  if(d.done) return "1px solid #222";
+                  const dl=Math.round((parseLocalDate(d.date)-today)/(24*3600*1000));
+                  if(dl<0) return "1px solid #ef444488";
+                  if(dl<=3) return "1px solid #fbbf2488";
+                  return `1px solid ${d.color}55`;
+                })(),
                 background:d.done?"#0a0a0a":`${d.color}0a`,
               }}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6}}>
