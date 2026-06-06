@@ -2762,7 +2762,27 @@ function ClientInput({value,onChange,suggestions,placeholder,style}){
 function Badge({color,children}){ return <span style={{fontSize:11,color,border:`1px solid ${color}44`,borderRadius:4,padding:"1px 5px",background:`${color}12`}}>{children}</span>; }
 const inp={width:"100%",padding:"8px 10px",background:"#0d0d0d",border:"1px solid #2a2a2a",borderRadius:7,color:"#f0f0ec",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box",marginBottom:10};
 function bSty(c,b){return{fontSize:10,padding:"2px 7px",borderRadius:4,border:`1px solid ${b}`,background:"transparent",color:c,cursor:"pointer",fontFamily:"inherit"};}
-function Overlay({children}){return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"flex-start",justifyContent:"center",zIndex:100,padding:"16px 16px",overflowY:"auto"}}>{children}</div>;}
+function Overlay({children}){
+  // Use viewport-relative positioning that works with CSS transform: scale
+  const isDesktop=typeof window!=="undefined"&&window.innerWidth>=1200;
+  const scale=isDesktop?1.5:1;
+  return <div style={{
+    position:"fixed",
+    top:0, left:0,
+    width:`${100*scale}vw`,
+    height:`${100*scale}vh`,
+    background:"rgba(0,0,0,.88)",
+    display:"flex",
+    alignItems:"flex-start",
+    justifyContent:"center",
+    zIndex:1000,
+    padding:`${16*scale}px ${16*scale}px`,
+    overflowY:"auto",
+    // Counter-scale the overlay itself so it fills the REAL viewport
+    transform:`scale(${1/scale})`,
+    transformOrigin:"top left",
+  }}>{children}</div>;
+}
 function MB({children,style}){return <div style={{background:"#141414",border:"1px solid #222",borderRadius:14,padding:18,width:"100%",maxWidth:420,marginTop:8,...style}}>{children}</div>;}
 function ML({children}){return <div style={{fontSize:9,letterSpacing:3,color:"#ddd",textTransform:"uppercase",marginBottom:7}}>{children}</div>;}
 function Row({children,style}){return <div style={{display:"flex",gap:8,...style}}>{children}</div>;}
