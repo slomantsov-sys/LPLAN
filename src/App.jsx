@@ -40,21 +40,7 @@ async function saveToSupabase(payload) {
 
 
 // ─── Responsive scale ────────────────────────────────────────────────────────
-function useScale(){
-  const getScale=()=>{
-    if(typeof window==="undefined") return 1;
-    if(window.innerWidth>=1200) return 1.8;
-    if(window.innerWidth>=768) return 1.3;
-    return 1;
-  };
-  const [scale,setScale]=useState(getScale);
-  useEffect(()=>{
-    const h=()=>setScale(getScale());
-    window.addEventListener("resize",h);
-    return()=>window.removeEventListener("resize",h);
-  },[]);
-  return scale;
-}
+function useScale(){ return 1; } // scaling via CSS in index.html
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS_SHORT   = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
@@ -190,7 +176,6 @@ function daysSince(k){ const l=getLS(k); if(!l) return Infinity; return Math.flo
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
-  const scale=useScale();
   const [weeks,setWeeks] = useState(initWeeks);
   const [days,setDays] = useState({});
   const [priorities,setPriorities] = useState(()=>{
@@ -759,7 +744,7 @@ export default function App(){
   };
 
   return(
-    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none",fontSize:scale===1?"14px":scale===1.3?"17px":"21px"}}>
+    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none"}}>
 
       {/* HEADER */}
       <div style={{borderBottom:"1px solid #1e1e1e",padding:"13px 14px 10px",position:"sticky",top:0,
