@@ -48,8 +48,8 @@ function useScale(){
     return ()=>window.removeEventListener("resize",h);
   },[]);
   // Only scale font on desktop, no zoom (zoom breaks mobile)
-  if(w>=1200) return 1.6;
-  if(w>=768)  return 1.25;
+  if(w>=1200) return 2.5;
+  if(w>=768)  return 2.0;
   return 1;
 }
 
@@ -64,16 +64,16 @@ const PRIORITY_KEYS = ["a","b","c","d","e","f","g","h","i","j"];
 
 // Default priority config
 const DEFAULT_PRIORITIES = {
-  a: { name:"", maxPerWeek:1, color:"#f87171", canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true },
-  b: { name:"", maxPerWeek:1, color:"#fb923c", canBeCommercial:true , dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
-  c: { name:"", maxPerWeek:2, color:"#facc15" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
-  d: { name:"", maxPerWeek:3, color:"#a3e635" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
-  e: { name:"", maxPerWeek:3, color:"#4ade80" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
-  f: { name:"", maxPerWeek:3, color:"#34d399" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
-  g: { name:"", maxPerWeek:3, color:"#22d3ee" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
-  h: { name:"", maxPerWeek:3, color:"#60a5fa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
-  i: { name:"", maxPerWeek:3, color:"#a78bfa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
-  j: { name:"", maxPerWeek:3, color:"#e879f9" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true},
+  a: { name:"", maxPerWeek:1, color:"#f87171", canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true , saveStorage:false},
+  b: { name:"", maxPerWeek:1, color:"#fb923c", canBeCommercial:true , dueAfterDays:7, dueLabel:"Сдать", hasDue:true, saveStorage:false},
+  c: { name:"", maxPerWeek:2, color:"#facc15" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true, saveStorage:false},
+  d: { name:"", maxPerWeek:3, color:"#a3e635" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true, saveStorage:false},
+  e: { name:"", maxPerWeek:3, color:"#4ade80" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true, saveStorage:false},
+  f: { name:"", maxPerWeek:3, color:"#34d399" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true, saveStorage:false},
+  g: { name:"", maxPerWeek:3, color:"#22d3ee" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true, saveStorage:false},
+  h: { name:"", maxPerWeek:3, color:"#60a5fa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true, saveStorage:false},
+  i: { name:"", maxPerWeek:3, color:"#a78bfa" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true, saveStorage:false},
+  j: { name:"", maxPerWeek:3, color:"#e879f9" , canBeCommercial:true, dueAfterDays:7, dueLabel:"Сдать", hasDue:true, saveStorage:false},
 };
 
 const BT = { COMMERCIAL:"commercial", NONCOMMERCIAL:"noncommercial" };
@@ -418,7 +418,7 @@ export default function App(){
     // Auto-create deadline
     addDeadlineForBooking(dk,booking);
     // Auto-create storage reminder if requested
-    if(booking.saveStorage){
+    if(priorities[booking.priority]?.saveStorage){
       setStorageReminders(prev=>({...prev,[booking.id]:{
         bookingId:booking.id, dk,
         label:`Сбросить материал: ${booking.client||priorities[booking.priority]?.name||"съёмка"}`,
@@ -1099,6 +1099,18 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                   {p.hasDue?"дедлайн":"без дедлайна"}
                 </span>
               </div>
+              {/* saveStorage toggle */}
+              <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,cursor:"pointer"}}
+                onClick={()=>update(pk,"saveStorage",!p.saveStorage)}>
+                <div style={{width:28,height:16,borderRadius:8,transition:"all .2s",flexShrink:0,
+                  background:p.saveStorage?"#60a5fa":"#333",position:"relative"}}>
+                  <div style={{position:"absolute",top:2,left:p.saveStorage?13:2,width:12,height:12,
+                    borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+                </div>
+                <span style={{fontSize:8,color:p.saveStorage?"#60a5fa":"#555",letterSpacing:1,textTransform:"uppercase"}}>
+                  {p.saveStorage?"💾 хранилище":"без хранилища"}
+                </span>
+              </div>
               {p.hasDue&&<>
               <div style={{fontSize:8,color:"#ddd",letterSpacing:1,textTransform:"uppercase",marginBottom:1}}>сдать через</div>
               <div style={{display:"flex",alignItems:"center",gap:3}}>
@@ -1645,7 +1657,7 @@ function DayDetailModal({dk,wk,dayIdx,days,weeks,priorities,knownClients,getDayI
   const avPriorities=availablePriorities(wk,days,priorities);
   const activePriorities=PRIORITY_KEYS.filter(pk=>priorities[pk]?.name);
 
-  const startAdd=()=>setAddForm({priority:avPriorities[0]||PRIORITY_KEYS[0],type:BT.COMMERCIAL,client:"",paid:false,amount:"",note:"",allDay:false,timeStart:"",timeEnd:"",location:"",reminders:[],dueOffset:0,customDueDate:"",saveStorage:false});
+  const startAdd=()=>setAddForm({priority:avPriorities[0]||PRIORITY_KEYS[0],type:BT.COMMERCIAL,client:"",paid:false,amount:"",note:"",allDay:false,timeStart:"",timeEnd:"",location:"",reminders:[],dueOffset:0,customDueDate:""});
   const confirmAdd=()=>{
     if(!addForm) return;
     const bookingId=Date.now().toString();
@@ -1968,24 +1980,7 @@ function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, pr
           })}
         </div>
       </div>
-      {/* Save to storage */}
-      <div onClick={()=>setAddForm(f=>({...f,saveStorage:!f.saveStorage}))}
-        style={{display:"flex",alignItems:"center",gap:9,marginBottom:10,padding:"9px 11px",
-          borderRadius:7,background:addForm.saveStorage?"#001428":"#0d0d0d",
-          border:`1px solid ${addForm.saveStorage?"#60a5fa":"#222"}`,cursor:"pointer"}}>
-        <div style={{width:20,height:20,borderRadius:4,flexShrink:0,transition:"all .15s",
-          border:`2px solid ${addForm.saveStorage?"#60a5fa":"#444"}`,
-          background:addForm.saveStorage?"#60a5fa":"transparent",
-          display:"flex",alignItems:"center",justifyContent:"center"}}>
-          {addForm.saveStorage&&<span style={{color:"#000",fontSize:13,fontWeight:900,lineHeight:1}}>✓</span>}
-        </div>
-        <div>
-          <div style={{fontSize:11,color:addForm.saveStorage?"#60a5fa":"#888",fontWeight:addForm.saveStorage?700:400}}>
-            💾 Сбросить материал в хранилище
-          </div>
-          <div style={{fontSize:9,color:"#555",marginTop:1}}>Напоминание каждые 24ч пока не выполнено</div>
-        </div>
-      </div>
+
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
         <div onClick={()=>setAddForm(f=>({...f,allDay:!f.allDay,timeStart:"",timeEnd:""}))}
           style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer"}}>
