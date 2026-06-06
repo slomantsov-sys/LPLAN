@@ -41,16 +41,19 @@ async function saveToSupabase(payload) {
 
 // ─── Responsive scale ────────────────────────────────────────────────────────
 function useScale(){
-  const [w,setW]=useState(typeof window!=="undefined"?window.innerWidth:375);
+  const getScale=()=>{
+    if(typeof window==="undefined") return 1;
+    if(window.innerWidth>=1200) return 1.8;
+    if(window.innerWidth>=768) return 1.3;
+    return 1;
+  };
+  const [scale,setScale]=useState(getScale);
   useEffect(()=>{
-    const h=()=>setW(window.innerWidth);
+    const h=()=>setScale(getScale());
     window.addEventListener("resize",h);
-    return ()=>window.removeEventListener("resize",h);
+    return()=>window.removeEventListener("resize",h);
   },[]);
-  // Only scale font on desktop, no zoom (zoom breaks mobile)
-  if(w>=1200) return 2.5;
-  if(w>=768)  return 2.0;
-  return 1;
+  return scale;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -756,7 +759,7 @@ export default function App(){
   };
 
   return(
-    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none",fontSize:`${Math.round(scale*14)}px`}}>
+    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none",fontSize:scale===1?"14px":scale===1.3?"17px":"21px"}}>
 
       {/* HEADER */}
       <div style={{borderBottom:"1px solid #1e1e1e",padding:"13px 14px 10px",position:"sticky",top:0,
@@ -1042,21 +1045,21 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
       {PRIORITY_KEYS.slice(0,visibleCount).map(pk=>{
         const p=local[pk];
         return(
-          <div key={pk} style={{marginBottom:10,padding:"10px 12px",borderRadius:9,
-            border:`1px solid ${p.color}33`,background:`${p.color}08`,
-            display:"grid",gridTemplateColumns:"20px 1fr 80px 50px 70px 90px",gap:8,alignItems:"center"}}>
-            {/* Color dot + key */}
-            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <div style={{width:9,height:9,borderRadius:"50%",background:p.color}}/>
-              <span style={{fontSize:11,color:"#e8e8e0",textTransform:"uppercase"}}>{pk}</span>
+          <div key={pk} style={{marginBottom:12,padding:"12px 14px",borderRadius:9,
+            border:`1px solid ${p.color}55`,background:`${p.color}08`}}>
+            {/* Header: dot + key + name */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <div style={{width:12,height:12,borderRadius:"50%",background:p.color,flexShrink:0}}/>
+              <span style={{fontSize:12,color:p.color,fontWeight:700,textTransform:"uppercase",minWidth:16}}>{pk}</span>
+              <input
+                value={p.name}
+                onChange={e=>update(pk,"name",e.target.value)}
+                placeholder={`Приоритет ${pk.toUpperCase()} — название`}
+                style={{...inp,marginBottom:0,fontSize:12,borderColor:`${p.color}44`,flex:1}}
+              />
             </div>
-            {/* Name */}
-            <input
-              value={p.name}
-              onChange={e=>update(pk,"name",e.target.value)}
-              placeholder={`Приоритет ${pk.toUpperCase()} (оставь пустым чтобы скрыть)`}
-              style={{...inp,marginBottom:0,fontSize:11,borderColor:`${p.color}44`}}
-            />
+            {/* Controls row */}
+            <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
             {/* Max per week */}
             <div style={{display:"flex",flexDirection:"column",gap:3}}>
               <div style={{fontSize:9,color:"#ddd",letterSpacing:1,textTransform:"uppercase"}}>макс/нед</div>
@@ -1075,7 +1078,7 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                 style={{width:32,height:24,border:"none",background:"none",cursor:"pointer",padding:0,borderRadius:4}}/>
             </div>
             {/* Can be commercial toggle */}
-            <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:8,color:"#ddd",letterSpacing:1,textTransform:"uppercase",textAlign:"center"}}>коммерц.</div>
               <div onClick={()=>update(pk,"canBeCommercial",!p.canBeCommercial)} style={{
                 width:34,height:19,borderRadius:10,cursor:"pointer",transition:"all .2s",
@@ -1112,7 +1115,7 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                 </span>
               </div>
               {p.hasDue&&<>
-              <div style={{fontSize:8,color:"#ddd",letterSpacing:1,textTransform:"uppercase",marginBottom:1}}>сдать через</div>
+              <div style={{fontSize:9,color:"#ddd",letterSpacing:1,textTransform:"uppercase",marginBottom:2}}>сдать через</div>
               <div style={{display:"flex",alignItems:"center",gap:3}}>
                 <button onClick={()=>update(pk,"dueAfterDays",Math.max(1,(p.dueAfterDays||7)-1))}
                   style={{...bSty("#ccc","#555"),padding:"1px 5px",fontSize:12}}>−</button>
@@ -1126,6 +1129,7 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                 borderColor:"#333",width:"100%"}}/>
               </>}
             </div>
+            </div>{/* end controls row */}
           </div>
         );
       })}
@@ -1743,12 +1747,12 @@ function BookingViewCard({b, priorities, onEdit, onDelete, onMarkPaid}){
         <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
           <div style={{width:9,height:9,borderRadius:"50%",background:pc,flexShrink:0}}/>
           <span style={{fontSize:12,color:pc,fontWeight:700}}>{p?.name||b.priority}</span>
-          <span style={{fontSize:9,color:bs.color,border:`1px solid ${bs.color}44`,borderRadius:3,padding:"1px 6px"}}>{bs.label}</span>
-          {isComm&&<span style={{fontSize:9,fontWeight:700,color:b.paid?"#4ade80":"#ef4444",border:`1px solid ${b.paid?"#4ade8044":"#ef444444"}`,borderRadius:3,padding:"1px 6px"}}>
+          <span style={{fontSize:10,color:bs.color,fontWeight:600,opacity:0.9}}>{bs.label}</span>
+          {isComm&&<span style={{fontSize:10,fontWeight:700,color:b.paid?"#4ade80":"#ef4444"}}>
             {b.paid?"✓ Оплачено":"✗ Не оплачено"}
           </span>}
         </div>
-        <button onClick={onEdit} style={{...bSty("#60a5fa","#60a5fa44"),fontWeight:700}}>Изменить</button>
+        <button onClick={onEdit} style={{padding:"6px 14px",borderRadius:6,border:"2px solid #60a5fa",background:"#0d1520",color:"#60a5fa",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>✏ Изменить</button>
       </div>
       {b.client&&<div style={{fontSize:12,color:"#e8e8e0",marginBottom:4}}>👤 {b.client}</div>}
       {isComm&&b.amount&&<div style={{fontSize:13,color:"#fbbf24",fontWeight:700,marginBottom:4}}>💶 {parseFloat(b.amount).toLocaleString("ru-RU")} €</div>}
@@ -1768,7 +1772,7 @@ function BookingViewCard({b, priorities, onEdit, onDelete, onMarkPaid}){
             fontFamily:"inherit",fontWeight:700,
           }}>✓ Оплачено</button>
         )}
-        <button onClick={onDelete} style={{...bSty("#ef4444","#ef444433"),fontSize:9}}>удалить</button>
+        <button onClick={onDelete} style={{padding:"5px 12px",borderRadius:6,border:"1px solid #ef4444",background:"#130808",color:"#ef4444",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>🗑 Удалить</button>
       </div>
     </div>
   );
