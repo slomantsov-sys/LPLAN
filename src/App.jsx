@@ -47,8 +47,8 @@ function useScale(){
     window.addEventListener("resize",h);
     return()=>window.removeEventListener("resize",h);
   },[]);
-  if(w>=1200) return 1.6;
-  if(w>=768)  return 1.25;
+  if(w>=1200) return 2.2;
+  if(w>=768)  return 1.5;
   return 1;
 }
 
@@ -2883,7 +2883,7 @@ function Overlay({children}){
     overflowY:"auto",
   }}>{children}</div>;
 }
-function MB({children,style}){return <div style={{background:"#141414",border:"1px solid #222",borderRadius:14,padding:18,width:"100%",maxWidth:420,marginTop:8,...style}}>{children}</div>;}
+function MB({children,style}){const wide=typeof window!=="undefined"&&window.innerWidth>=1200;return <div style={{background:"#141414",border:"1px solid #222",borderRadius:14,padding:18,width:"100%",maxWidth:wide?520:420,marginTop:8,...style}}>{children}</div>;}
 function ML({children}){return <div style={{fontSize:9,letterSpacing:3,color:"#ddd",textTransform:"uppercase",marginBottom:7}}>{children}</div>;}
 function Row({children,style}){return <div style={{display:"flex",gap:8,...style}}>{children}</div>;}
 function Btn({children,onClick,c,b,bg,bold}){return <button onClick={onClick} style={{flex:1,padding:"8px",borderRadius:7,border:`1px solid ${b}`,background:bg,color:c,fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:bold?700:400}}>{children}</button>;}
