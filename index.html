@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Планировщик</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { background: #0a0a0a; overscroll-behavior-y: none; }
+
+      /* Tablet 768-1199px: x1.5 */
+      @media (min-width: 768px) and (max-width: 1199px) {
+        #root { zoom: 1.5; }
+      }
+
+      /* Desktop 1200px+ (2.5K+): x2 */
+      @media (min-width: 1200px) {
+        #root { zoom: 2; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
