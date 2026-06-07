@@ -40,17 +40,7 @@ async function saveToSupabase(payload) {
 
 
 // ─── Responsive scale ────────────────────────────────────────────────────────
-function useScale(){
-  const [w,setW]=useState(typeof window!=="undefined"?window.innerWidth:375);
-  useEffect(()=>{
-    const h=()=>setW(window.innerWidth);
-    window.addEventListener("resize",h);
-    return()=>window.removeEventListener("resize",h);
-  },[]);
-  if(w>=1200) return 1.6;
-  if(w>=768)  return 1.25;
-  return 1;
-}
+function useScale(){ return 1; }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS_SHORT   = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
@@ -186,24 +176,6 @@ function daysSince(k){ const l=getLS(k); if(!l) return Infinity; return Math.flo
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
-  // Inject desktop CSS scaling
-  useEffect(()=>{
-    const style=document.createElement("style");
-    style.id="desktop-scale";
-    style.textContent=`
-      @media (min-width: 1200px) {
-        #root { font-size: 18px !important; }
-        #root * { font-size: inherit; }
-      }
-      @media (min-width: 768px) and (max-width: 1199px) {
-        #root { font-size: 16px !important; }
-        #root * { font-size: inherit; }
-      }
-    `;
-    document.head.appendChild(style);
-    return()=>{ const el=document.getElementById("desktop-scale"); if(el) el.remove(); };
-  },[]);
-
   const [weeks,setWeeks] = useState(initWeeks);
   const [days,setDays] = useState({});
   const [priorities,setPriorities] = useState(()=>{
@@ -2888,16 +2860,9 @@ function Badge({color,children}){ return <span style={{fontSize:11,color,border:
 const inp={width:"100%",padding:"8px 10px",background:"#0d0d0d",border:"1px solid #2a2a2a",borderRadius:7,color:"#f0f0ec",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box",marginBottom:10};
 function bSty(c,b){return{fontSize:10,padding:"2px 7px",borderRadius:4,border:`1px solid ${b}`,background:"transparent",color:c,cursor:"pointer",fontFamily:"inherit"};}
 function Overlay({children}){
-  return <div style={{
-    position:"fixed",
-    top:0,left:0,right:0,bottom:0,
-    background:"rgba(0,0,0,.88)",
-    display:"flex",
-    alignItems:"flex-start",
-    justifyContent:"center",
-    zIndex:1000,
-    padding:"16px",
-    overflowY:"auto",
+  return <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,
+    background:"rgba(0,0,0,.88)",display:"flex",alignItems:"flex-start",
+    justifyContent:"center",zIndex:9999,padding:"16px",overflowY:"auto",
   }}>{children}</div>;
 }
 function MB({children,style}){return <div style={{background:"#141414",border:"1px solid #222",borderRadius:14,padding:18,width:"100%",maxWidth:420,marginTop:8,...style}}>{children}</div>;}
