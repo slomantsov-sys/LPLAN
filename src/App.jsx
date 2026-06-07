@@ -40,7 +40,17 @@ async function saveToSupabase(payload) {
 
 
 // ─── Responsive scale ────────────────────────────────────────────────────────
-function useScale(){ return 1; } // scaling via CSS in index.html
+function useScale(){
+  const [w,setW]=useState(typeof window!=="undefined"?window.innerWidth:375);
+  useEffect(()=>{
+    const h=()=>setW(window.innerWidth);
+    window.addEventListener("resize",h);
+    return()=>window.removeEventListener("resize",h);
+  },[]);
+  if(w>=1200) return 1.6;
+  if(w>=768)  return 1.25;
+  return 1;
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS_SHORT   = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
@@ -176,6 +186,7 @@ function daysSince(k){ const l=getLS(k); if(!l) return Infinity; return Math.flo
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
+  const scale=useScale();
   const [weeks,setWeeks] = useState(initWeeks);
   const [days,setDays] = useState({});
   const [priorities,setPriorities] = useState(()=>{
@@ -277,6 +288,7 @@ export default function App(){
       if(data.show_amounts !== undefined) setShowAmounts(data.show_amounts);
       if(data.deadlines && data.deadlines.length>0) setDeadlines(data.deadlines);
       if(data.storage_reminders && Object.keys(data.storage_reminders).length>0) setStorageReminders(data.storage_reminders);
+      if(data.priorities && Object.keys(data.priorities).length>0) setPriorities(data.priorities);
     });
   },[]);
 
@@ -287,6 +299,7 @@ export default function App(){
     saveTimer.current = setTimeout(()=>{
       saveToSupabase({
         weeks, days,
+        priorities,
         written_off: writtenOff,
         show_amounts: showAmounts,
         deadlines: deadlines,
@@ -297,7 +310,7 @@ export default function App(){
       setLS(DAYS_KEY, JSON.stringify(days));
     }, 2000);
     return ()=>{ if(saveTimer.current) clearTimeout(saveTimer.current); };
-  },[weeks, days, writtenOff, showAmounts, deadlines, storageReminders]);
+  },[weeks, days, priorities, writtenOff, showAmounts, deadlines, storageReminders]);
 
   useEffect(()=>{
     const now=new Date(); now.setHours(0,0,0,0);
@@ -750,7 +763,7 @@ export default function App(){
   };
 
   return(
-    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none"}}>
+    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none",fontSize:scale>1?`${Math.round(scale*14)}px`:"14px"}}>
 
       {/* HEADER */}
       <div style={{borderBottom:"1px solid #1e1e1e",padding:"13px 14px 10px",position:"sticky",top:0,
@@ -879,6 +892,8 @@ export default function App(){
           onWriteOff={setWrittenOff}
           weeks={weeks}
           pastWKs={pastWKs}
+          renderWeek={renderWeek}
+          weeksAgo={weeksAgo}
           handleBackup={handleBackup}
           handleICS={handleICS}
           importRef={importRef}
@@ -1398,7 +1413,7 @@ function PersonalReport({days, priorities, clientTextForPriority, showAmounts}){
 }
 
 // ─── ReportsView ─────────────────────────────────────────────────────────────
-function ReportsView({priorities,clientPriority,setClientPriority,showBooked,setShowBooked,selPeriod,setSelPeriod,clientTextForPriority,bookedText,days,showAmounts,writtenOff,onWriteOff,weeks,pastWKs,handleBackup,handleICS,importRef,backupMsg,setView}){
+function ReportsView({priorities,clientPriority,setClientPriority,showBooked,setShowBooked,selPeriod,setSelPeriod,clientTextForPriority,bookedText,days,showAmounts,writtenOff,onWriteOff,weeks,pastWKs,renderWeek,weeksAgo,handleBackup,handleICS,importRef,backupMsg,setView}){
   const [section,setSection]=useState("client"); // "client" | "personal"
 
   const BOOKED_PERIODS=[
@@ -1490,7 +1505,7 @@ function ReportsView({priorities,clientPriority,setClientPriority,showBooked,set
 
       {/* ── ARCHIVE ── */}
       {section==="archive"&&weeks&&(
-        <ArchiveView pastWKs={pastWKs} renderWeek={()=>null} weeksAgo={()=>0} parseWK={parseWK}/>
+        <ArchiveView pastWKs={pastWKs} renderWeek={renderWeek} weeksAgo={weeksAgo} parseWK={parseWK}/>
       )}
     </div>
   );
