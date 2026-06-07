@@ -40,17 +40,7 @@ async function saveToSupabase(payload) {
 
 
 // ─── Responsive scale ────────────────────────────────────────────────────────
-function useScale(){
-  const [w,setW]=useState(typeof window!=="undefined"?window.innerWidth:375);
-  useEffect(()=>{
-    const h=()=>setW(window.innerWidth);
-    window.addEventListener("resize",h);
-    return()=>window.removeEventListener("resize",h);
-  },[]);
-  if(w>=1200) return 2.2;
-  if(w>=768)  return 1.5;
-  return 1;
-}
+function useScale(){ return 1; }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS_SHORT   = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
@@ -763,7 +753,7 @@ export default function App(){
   };
 
   return(
-    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none",fontSize:scale>1?`${Math.round(scale*14)}px`:"14px"}}>
+    <div style={{minHeight:"100vh",background:"#0a0a0a",color:"#f0f0ec",fontFamily:"'DM Mono','Courier New',monospace",userSelect:"none"}}>
 
       {/* HEADER */}
       <div style={{borderBottom:"1px solid #1e1e1e",padding:"13px 14px 10px",position:"sticky",top:0,
@@ -2871,16 +2861,26 @@ function Badge({color,children}){ return <span style={{fontSize:11,color,border:
 const inp={width:"100%",padding:"8px 10px",background:"#0d0d0d",border:"1px solid #2a2a2a",borderRadius:7,color:"#f0f0ec",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box",marginBottom:10};
 function bSty(c,b){return{fontSize:10,padding:"2px 7px",borderRadius:4,border:`1px solid ${b}`,background:"transparent",color:c,cursor:"pointer",fontFamily:"inherit"};}
 function Overlay({children}){
+  // Compensate for CSS transform scale applied in index.html
+  const getScale=()=>{
+    if(typeof window==="undefined") return 1;
+    return window.innerWidth>=1200?2.0:window.innerWidth>=768?1.4:1;
+  };
+  const sc=getScale();
   return <div style={{
     position:"fixed",
-    top:0,left:0,right:0,bottom:0,
+    top:0, left:0,
+    width:`${sc*100}vw`,
+    height:`${sc*100}vh`,
     background:"rgba(0,0,0,.88)",
     display:"flex",
     alignItems:"flex-start",
     justifyContent:"center",
-    zIndex:1000,
+    zIndex:9999,
     padding:"16px",
     overflowY:"auto",
+    transform:`scale(${1/sc})`,
+    transformOrigin:"top left",
   }}>{children}</div>;
 }
 function MB({children,style}){const wide=typeof window!=="undefined"&&window.innerWidth>=1200;return <div style={{background:"#141414",border:"1px solid #222",borderRadius:14,padding:18,width:"100%",maxWidth:wide?520:420,marginTop:8,...style}}>{children}</div>;}
