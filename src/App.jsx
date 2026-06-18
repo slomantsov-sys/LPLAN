@@ -1085,7 +1085,7 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
         return(
           <div key={pk} style={{marginBottom:12,padding:"12px 14px",borderRadius:9,
             border:`1px solid ${p.color}55`,background:`${p.color}08`}}>
-            {/* Header: dot + key + name */}
+            {/* Header: dot + key + name + stats */}
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
               <div style={{width:12,height:12,borderRadius:"50%",background:p.color,flexShrink:0}}/>
               <span style={{fontSize:12,color:p.color,fontWeight:700,textTransform:"uppercase",minWidth:16}}>{pk}</span>
@@ -1095,6 +1095,27 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                 placeholder={`Приоритет ${pk.toUpperCase()} — название`}
                 style={{...inp,marginBottom:0,fontSize:12,borderColor:`${p.color}44`,flex:1}}
               />
+              {/* Booking stats badge */}
+              {bookingStats[pk].total>0&&(
+                <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap"}}>
+                  <div style={{padding:"2px 8px",borderRadius:10,background:`${p.color}20`,
+                    border:`1px solid ${p.color}55`,fontSize:10,color:p.color,fontWeight:700,whiteSpace:"nowrap"}}>
+                    Всего: {bookingStats[pk].total}
+                  </div>
+                  {bookingStats[pk].commercial>0&&(
+                    <div style={{padding:"2px 8px",borderRadius:10,background:"#ef444420",
+                      border:"1px solid #ef444455",fontSize:10,color:"#ef4444",whiteSpace:"nowrap"}}>
+                      🔴 {bookingStats[pk].commercial}
+                    </div>
+                  )}
+                  {bookingStats[pk].noncommercial>0&&(
+                    <div style={{padding:"2px 8px",borderRadius:10,background:"#60a5fa20",
+                      border:"1px solid #60a5fa55",fontSize:10,color:"#60a5fa",whiteSpace:"nowrap"}}>
+                      🔵 {bookingStats[pk].noncommercial}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             {/* Controls row */}
             <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
