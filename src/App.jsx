@@ -1102,6 +1102,7 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
   const filledKeys=PRIORITY_KEYS.filter(pk=>local[pk]?.name);
   const emptyKeys=PRIORITY_KEYS.filter(pk=>!local[pk]?.name);
   const [draftKeys,setDraftKeys]=useState([]); // empty slots user chose to reveal
+  const [collapsedKeys,setCollapsedKeys]=useState({}); // pk -> true if collapsed
   // dedupe: a key that became filled shouldn't also linger as a draft
   const visibleKeys=[...new Set([...filledKeys, ...draftKeys.filter(k=>!local[k]?.name)])];
   const canAddMore=PRIORITY_KEYS.some(k=>!visibleKeys.includes(k));
