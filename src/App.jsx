@@ -1054,7 +1054,12 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
   };
   const save=()=>{ onChange(local); setSaved(true); setTimeout(()=>{ setSaved(false); onClose(); },800); };
 
-  const [visibleCount,setVisibleCount]=useState(6);
+  // Show all filled priorities, plus optionally one empty "draft" slot being added
+  const filledKeys=PRIORITY_KEYS.filter(pk=>local[pk]?.name);
+  const emptyKeys=PRIORITY_KEYS.filter(pk=>!local[pk]?.name);
+  const [draftKeys,setDraftKeys]=useState([]); // empty slots user chose to reveal
+  const visibleKeys=[...filledKeys, ...draftKeys];
+  const canAddMore=emptyKeys.length>draftKeys.length;
 
   // Count only UPCOMING bookings per priority (today and future, exclude archived/past)
   const bookingStats={};
@@ -1115,7 +1120,7 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
         }}>⚡ Создать дедлайны для существующих заданий</button>
       )}
 
-      {PRIORITY_KEYS.slice(0,visibleCount).map(pk=>{
+      {visibleKeys.map(pk=>{
         const p=local[pk];
         return(
           <div key={pk} style={{marginBottom:12,padding:"12px 14px",borderRadius:9,
@@ -1130,19 +1135,20 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                 placeholder={`Приоритет ${pk.toUpperCase()} — название`}
                 style={{...inp,marginBottom:0,fontSize:12,borderColor:`${p.color}44`,flex:1}}
               />
-              {p.name&&(
-                <button onClick={()=>{
-                  const msg=bookingStats[pk].total>0
-                    ?`Удалить «${p.name}»? У него ${bookingStats[pk].total} заданий — они останутся в расписании, но это задание исчезнет из списков.`
-                    :`Удалить «${p.name}»?`;
-                  if(window.confirm(msg)) update(pk,"name","");
-                }} title="Удалить это задание" style={{
-                  width:26,height:26,borderRadius:6,flexShrink:0,
-                  border:"1px solid #ef444466",background:"#1a0808",
-                  color:"#ef4444",fontSize:13,cursor:"pointer",fontFamily:"inherit",
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                }}>🗑</button>
-              )}
+              <button onClick={()=>{
+                const msg=bookingStats[pk].total>0
+                  ?`Удалить «${p.name||pk.toUpperCase()}»? У него ${bookingStats[pk].total} заданий — они останутся в расписании, но это задание исчезнет из списков.`
+                  :`Удалить «${p.name||"это задание"}»?`;
+                if(window.confirm(msg)){
+                  update(pk,"name","");
+                  setDraftKeys(d=>d.filter(k=>k!==pk));
+                }
+              }} title="Удалить это задание" style={{
+                width:26,height:26,borderRadius:6,flexShrink:0,
+                border:"1px solid #ef444466",background:"#1a0808",
+                color:"#ef4444",fontSize:13,cursor:"pointer",fontFamily:"inherit",
+                display:"flex",alignItems:"center",justifyContent:"center",
+              }}>🗑</button>
               {/* Booking stats badge - always visible */}
               <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap"}}>
                 <div style={{padding:"3px 10px",borderRadius:10,
@@ -1241,12 +1247,20 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
         );
       })}
 
-      {visibleCount<PRIORITY_KEYS.length&&(
-        <button onClick={()=>setVisibleCount(v=>Math.min(v+1,PRIORITY_KEYS.length))} style={{
-          width:"100%",padding:"8px",borderRadius:7,marginBottom:10,
-          border:"1px dashed #444",background:"transparent",
-          color:"#888",fontSize:12,cursor:"pointer",fontFamily:"inherit",
-        }}>+ Добавить приоритет ({visibleCount}/{PRIORITY_KEYS.length})</button>
+      {canAddMore&&(
+        <button onClick={()=>{
+          const next=emptyKeys.find(k=>!draftKeys.includes(k));
+          if(next) setDraftKeys(d=>[...d,next]);
+        }} style={{
+          width:"100%",padding:"10px",borderRadius:7,marginBottom:10,
+          border:"1px dashed #4ade80",background:"#0a1a0a",
+          color:"#4ade80",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600,
+        }}>+ Добавить новое задание ({filledKeys.length+draftKeys.length}/{PRIORITY_KEYS.length})</button>
+      )}
+      {visibleKeys.length===0&&(
+        <div style={{fontSize:12,color:"#555",textAlign:"center",padding:"20px 0"}}>
+          Нет заданий. Нажми «+ Добавить новое задание» ниже.
+        </div>
       )}
 
       <button onClick={save} style={{
