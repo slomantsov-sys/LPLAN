@@ -1066,8 +1066,9 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
   const filledKeys=PRIORITY_KEYS.filter(pk=>local[pk]?.name);
   const emptyKeys=PRIORITY_KEYS.filter(pk=>!local[pk]?.name);
   const [draftKeys,setDraftKeys]=useState([]); // empty slots user chose to reveal
-  const visibleKeys=[...filledKeys, ...draftKeys];
-  const canAddMore=emptyKeys.length>draftKeys.length;
+  // dedupe: a key that became filled shouldn't also linger as a draft
+  const visibleKeys=[...new Set([...filledKeys, ...draftKeys.filter(k=>!local[k]?.name)])];
+  const canAddMore=PRIORITY_KEYS.some(k=>!visibleKeys.includes(k));
 
   // Count only UPCOMING bookings per priority (today and future, exclude archived/past)
   const bookingStats={};
@@ -1257,13 +1258,13 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
 
       {canAddMore&&(
         <button onClick={()=>{
-          const next=emptyKeys.find(k=>!draftKeys.includes(k));
+          const next=PRIORITY_KEYS.find(k=>!visibleKeys.includes(k));
           if(next) setDraftKeys(d=>[...d,next]);
         }} style={{
           width:"100%",padding:"10px",borderRadius:7,marginBottom:10,
           border:"1px dashed #4ade80",background:"#0a1a0a",
           color:"#4ade80",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600,
-        }}>+ Добавить новое задание ({filledKeys.length+draftKeys.length}/{PRIORITY_KEYS.length})</button>
+        }}>+ Добавить новое задание ({visibleKeys.length}/{PRIORITY_KEYS.length})</button>
       )}
       {visibleKeys.length===0&&(
         <div style={{fontSize:12,color:"#555",textAlign:"center",padding:"20px 0"}}>
