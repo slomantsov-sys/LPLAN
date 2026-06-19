@@ -378,9 +378,7 @@ export default function App(){
   const addDeadlineForBooking=(dk,booking,customDays=null)=>{
     const p=priorities[booking.priority];
     if(!p||!p.name) return null;
-    // hasDue defaults to true when undefined (legacy data); explicit false disables
-    const deadlineEnabled = p.hasDue===undefined ? true : p.hasDue;
-    if(!deadlineEnabled) return null;
+    if(!p.hasDue) return null; // explicit checkbox - must be true
     // customDueDate takes priority, then dueOffset, then default days
     let dueDate;
     if(booking._customDueDate){
@@ -1046,6 +1044,26 @@ function SettingsView({priorities, onChange, days, deadlines, setDeadlines, past
   );
 }
 
+// ─── Checkbox ─────────────────────────────────────────────────────────────────
+function Checkbox({label, checked, color, onChange}){
+  return(
+    <div onClick={()=>onChange(!checked)} style={{
+      display:"flex",alignItems:"center",gap:7,cursor:"pointer",userSelect:"none",
+    }}>
+      <div style={{
+        width:18,height:18,borderRadius:4,flexShrink:0,
+        border:`2px solid ${checked?color:"#555"}`,
+        background:checked?color:"transparent",
+        display:"flex",alignItems:"center",justifyContent:"center",
+        transition:"all .15s",
+      }}>
+        {checked&&<span style={{color:"#000",fontSize:12,fontWeight:900,lineHeight:1}}>✓</span>}
+      </div>
+      <span style={{fontSize:11,color:checked?color:"#888",fontWeight:checked?700:400,whiteSpace:"nowrap"}}>{label}</span>
+    </div>
+  );
+}
+
 // ─── PrioritySettings ─────────────────────────────────────────────────────────
 function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDeadlines}){
   const [local,setLocal] = useState(()=>JSON.parse(JSON.stringify(priorities)));
@@ -1104,8 +1122,7 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
           Object.entries(days).forEach(([dk,d])=>{
             (d.bookings||[]).forEach(b=>{
               const p=priorities[b.priority];
-              const dlEnabled = p.hasDue===undefined ? true : p.hasDue;
-              if(!p||!p.name||!dlEnabled) return;
+              if(!p||!p.name||!p.hasDue) return;
               // Skip if deadline already exists
               if(newDls.some(dl=>dl.bookingId===b.id)) return;
               const baseDays=p.dueAfterDays||7;
@@ -1201,58 +1218,45 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
               <input type="color" value={p.color} onChange={e=>update(pk,"color",e.target.value)}
                 style={{width:32,height:24,border:"none",background:"none",cursor:"pointer",padding:0,borderRadius:4}}/>
             </div>
-            {/* Can be commercial toggle */}
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              <div style={{fontSize:8,color:"#ddd",letterSpacing:1,textTransform:"uppercase",textAlign:"center"}}>коммерц.</div>
-              <div onClick={()=>update(pk,"canBeCommercial",!p.canBeCommercial)} style={{
-                width:34,height:19,borderRadius:10,cursor:"pointer",transition:"all .2s",
-                background:p.canBeCommercial?"#ef4444":"#333",position:"relative",flexShrink:0,
-              }}>
-                <div style={{position:"absolute",top:3,left:p.canBeCommercial?17:3,width:13,height:13,
-                  borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
-              </div>
-            </div>
-            {/* Due after days + label */}
-            <div style={{display:"flex",flexDirection:"column",gap:3}}>
-              {/* hasDue toggle */}
-              <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,cursor:"pointer"}}
-                onClick={()=>{ const cur=p.hasDue===undefined?true:p.hasDue; update(pk,"hasDue",!cur); }}>
-                <div style={{width:28,height:16,borderRadius:8,transition:"all .2s",flexShrink:0,
-                  background:(p.hasDue===undefined?true:p.hasDue)?"#f97316":"#333",position:"relative"}}>
-                  <div style={{position:"absolute",top:2,left:(p.hasDue===undefined?true:p.hasDue)?13:2,width:12,height:12,
-                    borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+            {/* Checkbox: Коммерческая */}
+            <Checkbox
+              label="Коммерческая"
+              checked={!!p.canBeCommercial}
+              color="#ef4444"
+              onChange={v=>update(pk,"canBeCommercial",v)}
+            />
+            {/* Checkbox: Дедлайн */}
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <Checkbox
+                label="Есть дедлайн"
+                checked={!!p.hasDue}
+                color="#f97316"
+                onChange={v=>update(pk,"hasDue",v)}
+              />
+              {p.hasDue&&(
+                <div style={{paddingLeft:2}}>
+                  <div style={{fontSize:9,color:"#ddd",letterSpacing:1,textTransform:"uppercase",marginBottom:3}}>сдать через</div>
+                  <div style={{display:"flex",alignItems:"center",gap:3,marginBottom:6}}>
+                    <button onClick={()=>update(pk,"dueAfterDays",Math.max(1,(p.dueAfterDays||7)-1))}
+                      style={{...bSty("#ccc","#555"),padding:"1px 5px",fontSize:12}}>−</button>
+                    <span style={{fontSize:12,color:p.color,fontWeight:700,minWidth:20,textAlign:"center"}}>{p.dueAfterDays||7}</span>
+                    <button onClick={()=>update(pk,"dueAfterDays",(p.dueAfterDays||7)+1)}
+                      style={{...bSty("#ccc","#555"),padding:"1px 5px",fontSize:12}}>+</button>
+                    <span style={{fontSize:9,color:"#888"}}>дн.</span>
+                  </div>
+                  <input value={p.dueLabel||"Сдать"} onChange={e=>update(pk,"dueLabel",e.target.value)}
+                    placeholder="Сдать" style={{...inp,marginBottom:0,fontSize:10,padding:"3px 6px",
+                    borderColor:"#333",width:"100%"}}/>
                 </div>
-                <span style={{fontSize:8,color:(p.hasDue===undefined?true:p.hasDue)?"#f97316":"#555",letterSpacing:1,textTransform:"uppercase"}}>
-                  {(p.hasDue===undefined?true:p.hasDue)?"дедлайн":"без дедлайна"}
-                </span>
-              </div>
-              {/* saveStorage toggle */}
-              <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,cursor:"pointer"}}
-                onClick={()=>update(pk,"saveStorage",!p.saveStorage)}>
-                <div style={{width:28,height:16,borderRadius:8,transition:"all .2s",flexShrink:0,
-                  background:p.saveStorage?"#60a5fa":"#333",position:"relative"}}>
-                  <div style={{position:"absolute",top:2,left:p.saveStorage?13:2,width:12,height:12,
-                    borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
-                </div>
-                <span style={{fontSize:8,color:p.saveStorage?"#60a5fa":"#555",letterSpacing:1,textTransform:"uppercase"}}>
-                  {p.saveStorage?"💾 хранилище":"без хранилища"}
-                </span>
-              </div>
-              {p.hasDue&&<>
-              <div style={{fontSize:9,color:"#ddd",letterSpacing:1,textTransform:"uppercase",marginBottom:2}}>сдать через</div>
-              <div style={{display:"flex",alignItems:"center",gap:3}}>
-                <button onClick={()=>update(pk,"dueAfterDays",Math.max(1,(p.dueAfterDays||7)-1))}
-                  style={{...bSty("#ccc","#555"),padding:"1px 5px",fontSize:12}}>−</button>
-                <span style={{fontSize:12,color:p.color,fontWeight:700,minWidth:20,textAlign:"center"}}>{p.dueAfterDays||7}</span>
-                <button onClick={()=>update(pk,"dueAfterDays",(p.dueAfterDays||7)+1)}
-                  style={{...bSty("#ccc","#555"),padding:"1px 5px",fontSize:12}}>+</button>
-                <span style={{fontSize:9,color:"#888"}}>дн.</span>
-              </div>
-              <input value={p.dueLabel||"Сдать"} onChange={e=>update(pk,"dueLabel",e.target.value)}
-                placeholder="Сдать" style={{...inp,marginBottom:0,fontSize:10,padding:"3px 6px",
-                borderColor:"#333",width:"100%"}}/>
-              </>}
+              )}
             </div>
+            {/* Checkbox: Слив материала */}
+            <Checkbox
+              label="Слив материала"
+              checked={!!p.saveStorage}
+              color="#60a5fa"
+              onChange={v=>update(pk,"saveStorage",v)}
+            />
             </div>{/* end controls row */}
           </div>
         );
@@ -2050,8 +2054,7 @@ function BookingEditCard({b, ef, setEf, priorities, activePriorities, knownClien
 }
 
 function DeadlinePreview({priority:p, type, dk, dueOffset, customDueDate, onOffsetChange, onCustomDate, onClearCustom}){
-  const deadlineEnabled = p?.hasDue===undefined ? true : p?.hasDue;
-  if(!p||!p.name||!dk||!deadlineEnabled) return null;
+  if(!p||!p.name||!dk||!p.hasDue) return null;
   const base=p.dueAfterDays||7;
   const extra=type===BT.NONCOMMERCIAL?5:0;
   const total=base+extra+dueOffset;
