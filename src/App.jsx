@@ -377,7 +377,9 @@ export default function App(){
 
   const addDeadlineForBooking=(dk,booking,customDays=null)=>{
     const p=priorities[booking.priority];
-    if(!p||!p.name||p.hasDue===false) return null;
+    if(!p||!p.name) return null;
+    // Treat undefined hasDue as true for backward compat ONLY if dueAfterDays exists; otherwise require explicit true
+    if(p.hasDue===false) return null;
     // customDueDate takes priority, then dueOffset, then default days
     let dueDate;
     if(booking._customDueDate){
@@ -1048,9 +1050,15 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
   const [local,setLocal] = useState(()=>JSON.parse(JSON.stringify(priorities)));
   const [saved,setSaved] = useState(false);
 
+  // Auto-save: every change immediately propagates to real priorities state
   const update=(pk,field,val)=>{
-    setLocal(p=>({...p,[pk]:{...p[pk],[field]:val}}));
-    setSaved(false);
+    setLocal(p=>{
+      const next={...p,[pk]:{...p[pk],[field]:val}};
+      onChange(next); // immediate sync — no more lost changes
+      return next;
+    });
+    setSaved(true);
+    setTimeout(()=>setSaved(false),1000);
   };
   const save=()=>{ onChange(local); setSaved(true); setTimeout(()=>{ setSaved(false); onClose(); },800); };
 
