@@ -853,13 +853,32 @@ export default function App(){
 
       {/* LEGEND */}
       {view==="schedule"&&(
-        <div style={{padding:"7px 14px",borderBottom:"1px solid #111",display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
-          {[["#ef4444","Коммерч."],[BT_STYLE.noncommercial.color,"Некоммерч."],["#4ade80","Свободен"],["#facc15","Скрыт"],["#a78bfa","Личн. бронь"]].map(([c,l])=>(
-            <div key={l} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#e8e8e0"}}>
-              <div style={{width:7,height:7,borderRadius:2,background:c}}/>{l}
+        <div style={{padding:"6px 14px",borderBottom:"1px solid #111"}}>
+          {/* Priority types row */}
+          {PRIORITY_KEYS.some(pk=>priorities[pk]?.name)&&(
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginBottom:4}}>
+              <span style={{fontSize:9,color:"#555",letterSpacing:1,textTransform:"uppercase",flexShrink:0}}>Типы:</span>
+              {PRIORITY_KEYS.filter(pk=>priorities[pk]?.name).map(pk=>{
+                const p=priorities[pk];
+                return(
+                  <div key={pk} style={{display:"flex",alignItems:"center",gap:4,fontSize:11}}>
+                    <div style={{width:10,height:10,borderRadius:2,background:p.color,flexShrink:0,border:"1px solid rgba(255,255,255,0.15)"}}/>
+                    <span style={{color:p.color,fontWeight:700}}>{p.name}</span>
+                  </div>
+                );
+              })}
             </div>
-          ))}
-          <div style={{fontSize:11,color:"#e8e8e0",marginLeft:"auto"}}>Клик = детали · удержание = скрыть</div>
+          )}
+          {/* Status row */}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+            <span style={{fontSize:9,color:"#555",letterSpacing:1,textTransform:"uppercase",flexShrink:0}}>Статус:</span>
+            {[["#ef4444","Коммерч."],["#60a5fa","Некоммерч."],["#4ade80","Свободен"],["#facc15","Скрыт"],["#a78bfa","Личн. бронь"]].map(([c,l])=>(
+              <div key={l} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:"#aaa"}}>
+                <div style={{width:7,height:7,borderRadius:2,background:c,flexShrink:0}}/>{l}
+              </div>
+            ))}
+            <div style={{fontSize:10,color:"#555",marginLeft:"auto"}}>Клик = детали · удержание = скрыть</div>
+          </div>
         </div>
       )}
 
