@@ -994,7 +994,7 @@ export default function App(){
 // ─── SettingsView ────────────────────────────────────────────────────────────
 function SettingsView({priorities, onChange, days, deadlines, setDeadlines, pastWKs, renderWeek, weeksAgo, parseWK, onClose, onAddWeek, existingWKs, handleBackup, handleICS, importRef, backupMsg}){
   const [tab,setTab]=useState("priorities");
-  const TABS=[["priorities","⚙️ Приоритеты"],["addweek","➕ Недели"],["backup","💾 Данные"]];
+  const TABS=[["priorities","📋 Задания"],["addweek","➕ Недели"],["backup","💾 Данные"]];
   return(
     <div>
       <div style={{display:"flex",gap:4,padding:"12px 14px 0",borderBottom:"1px solid #1e1e1e",flexWrap:"wrap"}}>
@@ -1056,13 +1056,26 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
 
   const [visibleCount,setVisibleCount]=useState(6);
 
+  // Count bookings per priority
+  const bookingStats={};
+  PRIORITY_KEYS.forEach(pk=>{ bookingStats[pk]={total:0,commercial:0,noncommercial:0,paid:0}; });
+  Object.values(days||{}).forEach(d=>{
+    (d.bookings||[]).forEach(b=>{
+      if(!bookingStats[b.priority]) return;
+      bookingStats[b.priority].total++;
+      if(b.type===BT.COMMERCIAL) bookingStats[b.priority].commercial++;
+      else bookingStats[b.priority].noncommercial++;
+      if(b.paid) bookingStats[b.priority].paid++;
+    });
+  });
+
   return(
     <div style={{padding:"14px 14px"}}>
       <div style={{fontSize:11,color:"#e8e8e0",letterSpacing:3,textTransform:"uppercase",marginBottom:16}}>
-        НАСТРОЙКИ ПРИОРИТЕТОВ
+        НАСТРОЙКИ ЗАДАНИЙ
       </div>
       <div style={{fontSize:11,color:"#aaa",marginBottom:12,lineHeight:1.6}}>
-        Задай название, лимит, коммерция и срок сдачи. Пустое название — приоритет скрыт.
+        Задай название, лимит, коммерция и срок сдачи. Пустое название — задание скрыто.
       </div>
       {/* Generate missing deadlines for existing bookings */}
       {days&&setDeadlines&&(
@@ -1114,27 +1127,27 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                 placeholder={`Приоритет ${pk.toUpperCase()} — название`}
                 style={{...inp,marginBottom:0,fontSize:12,borderColor:`${p.color}44`,flex:1}}
               />
-              {/* Booking stats badge */}
-              {bookingStats[pk].total>0&&(
-                <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap"}}>
-                  <div style={{padding:"2px 8px",borderRadius:10,background:`${p.color}20`,
-                    border:`1px solid ${p.color}55`,fontSize:10,color:p.color,fontWeight:700,whiteSpace:"nowrap"}}>
-                    Всего: {bookingStats[pk].total}
-                  </div>
-                  {bookingStats[pk].commercial>0&&(
-                    <div style={{padding:"2px 8px",borderRadius:10,background:"#ef444420",
-                      border:"1px solid #ef444455",fontSize:10,color:"#ef4444",whiteSpace:"nowrap"}}>
-                      🔴 {bookingStats[pk].commercial}
-                    </div>
-                  )}
-                  {bookingStats[pk].noncommercial>0&&(
-                    <div style={{padding:"2px 8px",borderRadius:10,background:"#60a5fa20",
-                      border:"1px solid #60a5fa55",fontSize:10,color:"#60a5fa",whiteSpace:"nowrap"}}>
-                      🔵 {bookingStats[pk].noncommercial}
-                    </div>
-                  )}
+              {/* Booking stats badge - always visible */}
+              <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap"}}>
+                <div style={{padding:"3px 10px",borderRadius:10,
+                  background:bookingStats[pk].total>0?`${p.color}25`:"#1a1a1a",
+                  border:`1px solid ${bookingStats[pk].total>0?p.color+"66":"#333"}`,
+                  fontSize:11,color:bookingStats[pk].total>0?p.color:"#555",fontWeight:700,whiteSpace:"nowrap"}}>
+                  📊 Всего: {bookingStats[pk].total}
                 </div>
-              )}
+                {bookingStats[pk].commercial>0&&(
+                  <div style={{padding:"3px 10px",borderRadius:10,background:"#ef444425",
+                    border:"1px solid #ef444466",fontSize:11,color:"#ef4444",fontWeight:700,whiteSpace:"nowrap"}}>
+                    🔴 {bookingStats[pk].commercial}
+                  </div>
+                )}
+                {bookingStats[pk].noncommercial>0&&(
+                  <div style={{padding:"3px 10px",borderRadius:10,background:"#60a5fa25",
+                    border:"1px solid #60a5fa66",fontSize:11,color:"#60a5fa",fontWeight:700,whiteSpace:"nowrap"}}>
+                    🔵 {bookingStats[pk].noncommercial}
+                  </div>
+                )}
+              </div>
             </div>
             {/* Controls row */}
             <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
