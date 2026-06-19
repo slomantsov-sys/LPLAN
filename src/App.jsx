@@ -378,8 +378,9 @@ export default function App(){
   const addDeadlineForBooking=(dk,booking,customDays=null)=>{
     const p=priorities[booking.priority];
     if(!p||!p.name) return null;
-    // Treat undefined hasDue as true for backward compat ONLY if dueAfterDays exists; otherwise require explicit true
-    if(p.hasDue===false) return null;
+    // hasDue defaults to true when undefined (legacy data); explicit false disables
+    const deadlineEnabled = p.hasDue===undefined ? true : p.hasDue;
+    if(!deadlineEnabled) return null;
     // customDueDate takes priority, then dueOffset, then default days
     let dueDate;
     if(booking._customDueDate){
@@ -1103,7 +1104,8 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
           Object.entries(days).forEach(([dk,d])=>{
             (d.bookings||[]).forEach(b=>{
               const p=priorities[b.priority];
-              if(!p||!p.name||p.hasDue===false) return;
+              const dlEnabled = p.hasDue===undefined ? true : p.hasDue;
+              if(!p||!p.name||!dlEnabled) return;
               // Skip if deadline already exists
               if(newDls.some(dl=>dl.bookingId===b.id)) return;
               const baseDays=p.dueAfterDays||7;
@@ -1214,14 +1216,14 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
             <div style={{display:"flex",flexDirection:"column",gap:3}}>
               {/* hasDue toggle */}
               <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,cursor:"pointer"}}
-                onClick={()=>update(pk,"hasDue",!p.hasDue)}>
+                onClick={()=>{ const cur=p.hasDue===undefined?true:p.hasDue; update(pk,"hasDue",!cur); }}>
                 <div style={{width:28,height:16,borderRadius:8,transition:"all .2s",flexShrink:0,
-                  background:p.hasDue?"#f97316":"#333",position:"relative"}}>
-                  <div style={{position:"absolute",top:2,left:p.hasDue?13:2,width:12,height:12,
+                  background:(p.hasDue===undefined?true:p.hasDue)?"#f97316":"#333",position:"relative"}}>
+                  <div style={{position:"absolute",top:2,left:(p.hasDue===undefined?true:p.hasDue)?13:2,width:12,height:12,
                     borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
                 </div>
-                <span style={{fontSize:8,color:p.hasDue?"#f97316":"#555",letterSpacing:1,textTransform:"uppercase"}}>
-                  {p.hasDue?"дедлайн":"без дедлайна"}
+                <span style={{fontSize:8,color:(p.hasDue===undefined?true:p.hasDue)?"#f97316":"#555",letterSpacing:1,textTransform:"uppercase"}}>
+                  {(p.hasDue===undefined?true:p.hasDue)?"дедлайн":"без дедлайна"}
                 </span>
               </div>
               {/* saveStorage toggle */}
@@ -2048,7 +2050,8 @@ function BookingEditCard({b, ef, setEf, priorities, activePriorities, knownClien
 }
 
 function DeadlinePreview({priority:p, type, dk, dueOffset, customDueDate, onOffsetChange, onCustomDate, onClearCustom}){
-  if(!p||!p.name||!dk||p.hasDue===false) return null;
+  const deadlineEnabled = p?.hasDue===undefined ? true : p?.hasDue;
+  if(!p||!p.name||!dk||!deadlineEnabled) return null;
   const base=p.dueAfterDays||7;
   const extra=type===BT.NONCOMMERCIAL?5:0;
   const total=base+extra+dueOffset;
