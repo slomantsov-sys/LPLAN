@@ -1056,10 +1056,13 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
 
   const [visibleCount,setVisibleCount]=useState(6);
 
-  // Count bookings per priority
+  // Count only UPCOMING bookings per priority (today and future, exclude archived/past)
   const bookingStats={};
   PRIORITY_KEYS.forEach(pk=>{ bookingStats[pk]={total:0,commercial:0,noncommercial:0,paid:0}; });
-  Object.values(days||{}).forEach(d=>{
+  const statsToday=new Date(); statsToday.setHours(0,0,0,0);
+  Object.entries(days||{}).forEach(([dk,d])=>{
+    const bookingDate=parseLocalDate(dk);
+    if(bookingDate<statsToday) return; // skip past/archived
     (d.bookings||[]).forEach(b=>{
       if(!bookingStats[b.priority]) return;
       bookingStats[b.priority].total++;
@@ -1146,7 +1149,7 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                   background:bookingStats[pk].total>0?`${p.color}25`:"#1a1a1a",
                   border:`1px solid ${bookingStats[pk].total>0?p.color+"66":"#333"}`,
                   fontSize:11,color:bookingStats[pk].total>0?p.color:"#555",fontWeight:700,whiteSpace:"nowrap"}}>
-                  📊 Всего: {bookingStats[pk].total}
+                  📊 Запланировано: {bookingStats[pk].total}
                 </div>
                 {bookingStats[pk].commercial>0&&(
                   <div style={{padding:"3px 10px",borderRadius:10,background:"#ef444425",
