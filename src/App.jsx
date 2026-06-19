@@ -1064,6 +1064,23 @@ function Checkbox({label, checked, color, onChange}){
   );
 }
 
+function RadioOption({label, selected, color, onClick}){
+  return(
+    <div onClick={onClick} style={{
+      display:"flex",alignItems:"center",gap:6,cursor:"pointer",userSelect:"none",
+    }}>
+      <div style={{
+        width:14,height:14,borderRadius:"50%",flexShrink:0,
+        border:`2px solid ${selected?color:"#555"}`,
+        display:"flex",alignItems:"center",justifyContent:"center",
+      }}>
+        {selected&&<div style={{width:6,height:6,borderRadius:"50%",background:color}}/>}
+      </div>
+      <span style={{fontSize:10,color:selected?color:"#888",fontWeight:selected?700:400,whiteSpace:"nowrap"}}>{label}</span>
+    </div>
+  );
+}
+
 // ─── PrioritySettings ─────────────────────────────────────────────────────────
 function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDeadlines}){
   const [local,setLocal] = useState(()=>JSON.parse(JSON.stringify(priorities)));
@@ -1150,11 +1167,18 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
 
       {visibleKeys.map(pk=>{
         const p=local[pk];
+        const isCollapsed=!!collapsedKeys[pk];
         return(
           <div key={pk} style={{marginBottom:12,padding:"12px 14px",borderRadius:9,
             border:`1px solid ${p.color}55`,background:`${p.color}08`}}>
-            {/* Header: dot + key + name + stats */}
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            {/* Header: collapse arrow + dot + key + name + stats */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:isCollapsed?0:10}}>
+              <button onClick={()=>setCollapsedKeys(c=>({...c,[pk]:!c[pk]}))} title={isCollapsed?"Развернуть":"Свернуть"} style={{
+                width:22,height:22,borderRadius:5,flexShrink:0,border:"1px solid #444",
+                background:"transparent",color:"#888",cursor:"pointer",fontSize:11,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                transform:isCollapsed?"rotate(-90deg)":"none",transition:"transform .15s",
+              }}>▾</button>
               <div style={{width:12,height:12,borderRadius:"50%",background:p.color,flexShrink:0}}/>
               <span style={{fontSize:12,color:p.color,fontWeight:700,textTransform:"uppercase",minWidth:16}}>{pk}</span>
               <input
@@ -1199,7 +1223,8 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                 )}
               </div>
             </div>
-            {/* Controls row */}
+            {/* Controls row - hidden when collapsed */}
+            {!isCollapsed&&(
             <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
             {/* Max per week */}
             <div style={{display:"flex",flexDirection:"column",gap:3}}>
@@ -1218,13 +1243,30 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
               <input type="color" value={p.color} onChange={e=>update(pk,"color",e.target.value)}
                 style={{width:32,height:24,border:"none",background:"none",cursor:"pointer",padding:0,borderRadius:4}}/>
             </div>
-            {/* Checkbox: Коммерческая */}
-            <Checkbox
-              label="Коммерческая"
-              checked={!!p.canBeCommercial}
-              color="#ef4444"
-              onChange={v=>update(pk,"canBeCommercial",v)}
-            />
+            {/* Type mode: only non-commercial / only commercial / both */}
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <div style={{fontSize:8,color:"#ddd",letterSpacing:1,textTransform:"uppercase"}}>тип задания</div>
+              <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <RadioOption
+                  label="Только некоммерч."
+                  selected={p.typeMode==="nonCommOnly"||(!p.typeMode&&!p.canBeCommercial)}
+                  color="#60a5fa"
+                  onClick={()=>{ update(pk,"typeMode","nonCommOnly"); update(pk,"canBeCommercial",false); }}
+                />
+                <RadioOption
+                  label="Только коммерч."
+                  selected={p.typeMode==="commOnly"}
+                  color="#ef4444"
+                  onClick={()=>{ update(pk,"typeMode","commOnly"); update(pk,"canBeCommercial",true); }}
+                />
+                <RadioOption
+                  label="И то, и то"
+                  selected={p.typeMode==="both"||(!p.typeMode&&p.canBeCommercial)}
+                  color="#a78bfa"
+                  onClick={()=>{ update(pk,"typeMode","both"); update(pk,"canBeCommercial",true); }}
+                />
+              </div>
+            </div>
             {/* Checkbox: Дедлайн */}
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               <Checkbox
@@ -1257,7 +1299,8 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
               color="#60a5fa"
               onChange={v=>update(pk,"saveStorage",v)}
             />
-            </div>{/* end controls row */}
+            </div>
+            )}{/* end controls row conditional */}
           </div>
         );
       })}
@@ -1975,7 +2018,12 @@ function BookingEditCard({b, ef, setEf, priorities, activePriorities, knownClien
         })}
       </div>
       <div style={{display:"flex",gap:6,marginBottom:8}}>
-        {[BT.COMMERCIAL,BT.NONCOMMERCIAL].filter(t=>t!==BT.COMMERCIAL||priorities[ef.priority]?.canBeCommercial!==false).map(t=>{
+        {[BT.COMMERCIAL,BT.NONCOMMERCIAL].filter(t=>{
+          const pp=priorities[ef.priority]; if(!pp) return true;
+          if(pp.typeMode==="commOnly") return t===BT.COMMERCIAL;
+          if(pp.typeMode==="nonCommOnly") return t===BT.NONCOMMERCIAL;
+          return true;
+        }).map(t=>{
           const ts=BT_STYLE[t];
           return <button key={t} onClick={()=>upEf("type",t)} style={{
             flex:1,padding:"5px",borderRadius:6,border:`1px solid ${ef.type===t?ts.color:"#222"}`,
@@ -2118,7 +2166,12 @@ function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, pr
         <div style={{fontSize:9,color:"#f87171",marginBottom:8}}>⚠ Лимит достигнут — для клиентов недоступно</div>
       )}
       <div style={{display:"flex",gap:6,marginBottom:8}}>
-        {[BT.COMMERCIAL,BT.NONCOMMERCIAL].filter(t=>t!==BT.COMMERCIAL||priorities[addForm.priority]?.canBeCommercial!==false).map(t=>{
+        {[BT.COMMERCIAL,BT.NONCOMMERCIAL].filter(t=>{
+          const pp=priorities[addForm.priority]; if(!pp) return true;
+          if(pp.typeMode==="commOnly") return t===BT.COMMERCIAL;
+          if(pp.typeMode==="nonCommOnly") return t===BT.NONCOMMERCIAL;
+          return true;
+        }).map(t=>{
           const ts=BT_STYLE[t];
           return <button key={t} onClick={()=>setAddForm(f=>({...f,type:t}))} style={{
             flex:1,padding:"6px",borderRadius:6,border:`1px solid ${addForm.type===t?ts.color:"#222"}`,
