@@ -1127,6 +1127,19 @@ function PrioritySettings({priorities, onChange, onClose, days, deadlines, setDe
                 placeholder={`Приоритет ${pk.toUpperCase()} — название`}
                 style={{...inp,marginBottom:0,fontSize:12,borderColor:`${p.color}44`,flex:1}}
               />
+              {p.name&&(
+                <button onClick={()=>{
+                  const msg=bookingStats[pk].total>0
+                    ?`Удалить «${p.name}»? У него ${bookingStats[pk].total} заданий — они останутся в расписании, но это задание исчезнет из списков.`
+                    :`Удалить «${p.name}»?`;
+                  if(window.confirm(msg)) update(pk,"name","");
+                }} title="Удалить это задание" style={{
+                  width:26,height:26,borderRadius:6,flexShrink:0,
+                  border:"1px solid #ef444466",background:"#1a0808",
+                  color:"#ef4444",fontSize:13,cursor:"pointer",fontFamily:"inherit",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                }}>🗑</button>
+              )}
               {/* Booking stats badge - always visible */}
               <div style={{display:"flex",gap:5,flexShrink:0,flexWrap:"wrap"}}>
                 <div style={{padding:"3px 10px",borderRadius:10,
