@@ -2023,6 +2023,7 @@ function BookingEditCard({b, ef, setEf, priorities, activePriorities, knownClien
           const pp=priorities[ef.priority]; if(!pp) return true;
           if(pp.typeMode==="commOnly") return t===BT.COMMERCIAL;
           if(pp.typeMode==="nonCommOnly") return t===BT.NONCOMMERCIAL;
+          if(!pp.typeMode && pp.canBeCommercial===false) return t===BT.NONCOMMERCIAL; // legacy fallback
           return true;
         }).map(t=>{
           const ts=BT_STYLE[t];
@@ -2171,6 +2172,7 @@ function BookingAddForm({addForm, setAddForm, activePriorities, avPriorities, pr
           const pp=priorities[addForm.priority]; if(!pp) return true;
           if(pp.typeMode==="commOnly") return t===BT.COMMERCIAL;
           if(pp.typeMode==="nonCommOnly") return t===BT.NONCOMMERCIAL;
+          if(!pp.typeMode && pp.canBeCommercial===false) return t===BT.NONCOMMERCIAL; // legacy fallback
           return true;
         }).map(t=>{
           const ts=BT_STYLE[t];
