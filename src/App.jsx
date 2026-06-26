@@ -604,17 +604,41 @@ export default function App(){
     const p=priorities[pk]; if(!p||!p.name) return "";
     // Collect available dates for this priority
     const datelist=[]; // [{date, dayIdx}]
+    const today=new Date(); today.setHours(0,0,0,0);
+    const limitDate=new Date(today); limitDate.setDate(limitDate.getDate()+CLIENT_WEEKS_LIMIT*7);
+    // Use seeded random per week+priority for stable but varied day selection
     futureWKs.forEach(wk=>{
       const w=weeks[wk]; if(w.reserve!==WR.NONE) return;
-      const avP=availablePriorities(wk,days,priorities);
-      if(!avP.includes(pk)) return;
+      const used=countPriorityInWeek(wk,pk,days);
+      const capacity=(p.maxPerWeek||1)-used;
+      if(capacity<=0) return; // no more slots this week
       const m=parseWK(wk);
+      // Collect all candidate days this week (not hidden, not already booked with 3 tasks, not this priority already)
+      const candidates=[];
       for(let i=0;i<7;i++){
         const d=addDays(m,i); const dk=dateKey(d);
-        const{status,bookings}=getDayInfo(dk,wk,i);
-        if(status===S.OPEN && bookings.length===0) datelist.push({d,i});
+        if(d<today||d>limitDate) continue;
+        const dayData=days[dk]||{};
+        if(dayData.status===S.HIDDEN) continue;
+        const bookings=dayData.bookings||[];
+        if(bookings.length>=3) continue;
+        if(bookings.some(b=>b.priority===pk)) continue; // already has this priority today
+        candidates.push({d,i});
       }
+      if(!candidates.length) return;
+      // Pick random N days from candidates (seeded by wk+pk for stable output)
+      let seed=0; const key=wk+pk;
+      for(let i=0;i<key.length;i++) seed=(seed*31+key.charCodeAt(i))>>>0;
+      function nextRand(){ seed=(seed*1664525+1013904223)>>>0; return seed; }
+      const shuffled=[...candidates];
+      for(let i=shuffled.length-1;i>0;i--){
+        const j=nextRand()%(i+1);
+        [shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]];
+      }
+      // Take up to `capacity` days
+      shuffled.slice(0,capacity).forEach(item=>datelist.push(item));
     });
+    datelist.sort((a,b)=>a.d-b.d);
     if(!datelist.length) return `${p.name}\nСвободных дат нет`;
     // Group by month
     const byMonth={};
